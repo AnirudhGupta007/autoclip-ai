@@ -18,6 +18,7 @@ Key LangGraph features used:
 import json
 from pathlib import Path
 from langgraph.graph import StateGraph, END, START
+from langgraph.types import Send
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import ToolNode
 
@@ -108,12 +109,20 @@ def production_node(state: PipelineState) -> dict:
 # CONDITIONAL ROUTING
 # ═══════════════════════════════════════════════════════════════
 
-def route_by_video_type(state: PipelineState) -> str:
-    """Route based on video type — skip visual for audio-heavy content."""
+def route_by_video_type(state: PipelineState) -> list[Send]:
+    """Fan-out to parallel agents using Send API.
+
+    For non-podcast video: dispatches visual, audio, and text agents in parallel.
+    For podcast: skips visual agent (no useful frames), runs audio + text only.
+
+    Each agent writes to its own state field using annotated reducers,
+    so parallel writes don't conflict.
+    """
     video_type = state.get("video_type", "mixed")
-    if video_type == "podcast":
-        return "skip_visual"
-    return "run_visual"
+    agents = ["audio_agent", "text_agent"]
+    if video_type != "podcast":
+        agents.append("visual_agent")
+    return [Send(agent, state) for agent in agents]
 
 
 def route_after_fusion(state: PipelineState) -> str:
@@ -136,19 +145,21 @@ def route_analysis_check(state: PipelineState) -> str:
 # ═══════════════════════════════════════════════════════════════
 
 def build_analysis_subgraph() -> StateGraph:
-    """Build the multimodal analysis subgraph.
+    """Build the multimodal analysis subgraph with parallel agent dispatch.
 
     Flow:
-        classifier → [conditional]
+        classifier → Send API [parallel dispatch]
             → visual_agent ─┐
-            → audio_agent  ─┼→ fan_in → fusion
+            → audio_agent  ─┼→ fusion (fan-in)
             → text_agent   ─┘
 
-    For podcast videos, visual_agent is skipped (conditional edge).
-    Audio and text agents always run.
+    Uses LangGraph's Send API for true parallel execution:
+    - classifier determines video type, then dispatches Send() to each agent
+    - Each agent writes to its own state field (operator.add reducers prevent conflicts)
+    - LangGraph waits for ALL dispatched agents to complete before proceeding to fusion
+    - For podcast videos, visual_agent is skipped (not included in Send list)
 
-    Fan-out/fan-in pattern: classifier fans out to parallel agents,
-    fusion node fans in by reading all three timeline fields.
+    This is the fan-out/fan-in pattern: Send fans out, fusion fans in.
     """
     graph = StateGraph(PipelineState)
 
@@ -160,22 +171,15 @@ def build_analysis_subgraph() -> StateGraph:
 
     graph.set_entry_point("classifier")
 
-    # Classifier → conditional fan-out
-    # For non-podcast: visual runs, then audio + text
-    # For podcast: skip visual, go straight to audio
-    graph.add_conditional_edges(
-        "classifier",
-        route_by_video_type,
-        {
-            "run_visual": "visual_agent",
-            "skip_visual": "audio_agent",
-        }
-    )
+    # Classifier → parallel fan-out via Send API
+    # route_by_video_type returns [Send("visual_agent", state), Send("audio_agent", state), ...]
+    # LangGraph dispatches all agents concurrently
+    graph.add_conditional_edges("classifier", route_by_video_type)
 
-    # Fan-out: visual → audio → text → fusion
-    # Each agent writes to its own state field (no conflicts due to reducers)
-    graph.add_edge("visual_agent", "audio_agent")
-    graph.add_edge("audio_agent", "text_agent")
+    # Fan-in: all agents converge to fusion
+    # LangGraph waits for ALL Send-dispatched nodes to finish before running fusion
+    graph.add_edge("visual_agent", "fusion")
+    graph.add_edge("audio_agent", "fusion")
     graph.add_edge("text_agent", "fusion")
 
     graph.add_edge("fusion", END)

@@ -354,16 +354,29 @@ class TestPipelineRoutingE2E:
     """Test conditional routing through the full pipeline graph."""
 
     def test_podcast_skips_visual(self):
-        """Podcast video should route around visual agent."""
-        assert route_by_video_type({"video_type": "podcast"}) == "skip_visual"
-        assert route_by_video_type({"video_type": "talking_head"}) == "run_visual"
-        assert route_by_video_type({"video_type": "presentation"}) == "run_visual"
+        """Podcast video should dispatch only audio + text agents (no visual)."""
+        sends = route_by_video_type({"video_type": "podcast"})
+        targets = {s.node for s in sends}
+        assert "visual_agent" not in targets
+        assert "audio_agent" in targets
+        assert "text_agent" in targets
+
+        # Non-podcast should dispatch all three in parallel
+        sends_full = route_by_video_type({"video_type": "talking_head"})
+        assert len(sends_full) == 3
 
     def test_regeneration_skips_analysis(self):
         """When analysis is complete, should skip straight to generation."""
         assert route_analysis_check({"analysis_complete": True}) == "skip_to_selection"
         assert route_analysis_check({"analysis_complete": False}) == "needs_analysis"
         assert route_analysis_check({}) == "needs_analysis"
+
+    def test_parallel_dispatch_carries_state(self):
+        """Send objects should carry the full pipeline state to each agent."""
+        state = {"video_type": "mixed", "video_path": "/test.mp4", "video_id": "123"}
+        sends = route_by_video_type(state)
+        for s in sends:
+            assert s.arg == state
 
     def test_no_moments_terminates_early(self):
         """If fusion finds no moments, pipeline should terminate."""

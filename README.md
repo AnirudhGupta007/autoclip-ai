@@ -35,9 +35,10 @@ Video Input
 │ (conditional)  │   → talking_head / presentation / podcast / mixed
 └───────┬────────┘
         │
-        ▼ routes to appropriate agents
+        │
+        ▼ Send API — parallel fan-out
 ┌──────────────────────────────────────────┐
-│         PARALLEL ANALYSIS                 │
+│      PARALLEL AGENTS (concurrent)         │
 │                                           │
 │  Visual Agent     Audio Agent    Text     │
 │  (Gemini Vision)  (librosa)     Agent    │
@@ -46,7 +47,7 @@ Video Input
 │  emotion, scenes  pace, events  stories   │
 └──────────┬────────────┬──────────┬───────┘
            └────────────┼──────────┘
-                        ▼
+                        ▼ fan-in
               ┌──────────────────┐
               │  TEMPORAL FUSION  │
               │                   │
@@ -92,6 +93,7 @@ When visual energy, audio excitement, and a text hook all converge on the same t
 ### LangGraph Features Used
 
 - **StateGraph** with typed state + annotated reducers (`operator.add`)
+- **Send API** — parallel fan-out dispatch to visual/audio/text agents
 - **Subgraphs** — analysis and generation as compiled sub-pipelines
 - **Conditional edges** — video-type routing, analysis skip, early termination
 - **ToolNode** — FFmpeg operations as LangChain tools
@@ -158,13 +160,19 @@ You'll need:
 - [Google Gemini API key](https://ai.google.dev/)
 - [AssemblyAI API key](https://www.assemblyai.com/)
 
-### Setup
+### Quick Start (with Make)
 
 ```bash
-# Clone
 git clone https://github.com/AnirudhGupta007/autoclip-ai.git
 cd autoclip-ai
+make setup                     # Install all dependencies + create .env
+# → Edit .env with your API keys
+make dev                       # Start backend (:8000) + frontend (:5173)
+```
 
+### Manual Setup
+
+```bash
 # Backend
 cd backend
 cp ../.env.example .env        # Add your API keys
@@ -182,8 +190,18 @@ Open `http://localhost:5173` — upload a video and start chatting.
 ### Run Tests
 
 ```bash
-cd backend
-uv run pytest tests/ -v        # 69 tests, no API keys needed
+make test                      # or: cd backend && uv run pytest tests/ -v
+```
+
+### All Make Targets
+
+```
+make setup       First-time setup (backend + frontend dependencies)
+make dev         Start both backend and frontend
+make test        Run all tests
+make test-cov    Run tests with coverage report
+make lint        Type-check and verify graph compiles
+make clean       Remove build artifacts and caches
 ```
 
 ---

@@ -1,5 +1,6 @@
 """Tests for LangGraph pipeline graph structure."""
 import pytest
+from langgraph.types import Send
 from autoclip.pipeline.graph import (
     build_pipeline_graph,
     build_analysis_subgraph,
@@ -14,25 +15,45 @@ from autoclip.pipeline.state import Moment
 
 
 class TestConditionalRouting:
-    def test_skip_visual_for_podcast(self):
+    def test_podcast_sends_two_agents(self):
+        """Podcast should dispatch only audio + text (no visual)."""
         state = {"video_type": "podcast"}
-        assert route_by_video_type(state) == "skip_visual"
+        sends = route_by_video_type(state)
+        assert all(isinstance(s, Send) for s in sends)
+        targets = {s.node for s in sends}
+        assert targets == {"audio_agent", "text_agent"}
+        assert "visual_agent" not in targets
 
-    def test_run_visual_for_talking_head(self):
+    def test_talking_head_sends_three_agents(self):
+        """Non-podcast should dispatch all three agents in parallel."""
         state = {"video_type": "talking_head"}
-        assert route_by_video_type(state) == "run_visual"
+        sends = route_by_video_type(state)
+        targets = {s.node for s in sends}
+        assert targets == {"visual_agent", "audio_agent", "text_agent"}
 
-    def test_run_visual_for_presentation(self):
+    def test_presentation_sends_three_agents(self):
         state = {"video_type": "presentation"}
-        assert route_by_video_type(state) == "run_visual"
+        sends = route_by_video_type(state)
+        targets = {s.node for s in sends}
+        assert "visual_agent" in targets
 
-    def test_run_visual_for_mixed(self):
+    def test_mixed_sends_three_agents(self):
         state = {"video_type": "mixed"}
-        assert route_by_video_type(state) == "run_visual"
+        sends = route_by_video_type(state)
+        assert len(sends) == 3
 
-    def test_run_visual_default(self):
+    def test_default_sends_three_agents(self):
         state = {}
-        assert route_by_video_type(state) == "run_visual"
+        sends = route_by_video_type(state)
+        targets = {s.node for s in sends}
+        assert targets == {"visual_agent", "audio_agent", "text_agent"}
+
+    def test_send_passes_state(self):
+        """Each Send should carry the full state for the agent."""
+        state = {"video_type": "talking_head", "video_path": "/test.mp4"}
+        sends = route_by_video_type(state)
+        for s in sends:
+            assert s.arg == state
 
     def test_after_fusion_has_moments(self):
         state = {

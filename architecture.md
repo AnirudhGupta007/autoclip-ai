@@ -52,21 +52,28 @@ START
 - Conditional entry: `route_analysis_check()` skips analysis for regeneration requests
 - Thread-based config: `{"configurable": {"thread_id": video_id}}`
 
-### Analysis Subgraph
+### Analysis Subgraph (Parallel Fan-Out via Send API)
 
 ```
 classifier_node
   │
   ├── [video_type == podcast?]
-  │     ├── YES → audio_agent → text_agent → fusion
-  │     └── NO  → visual_agent → audio_agent → text_agent → fusion
+  │     │
+  │     ├── YES → Send("audio_agent") ─┐
+  │     │         Send("text_agent")  ─┼→ fusion → END
+  │     │                              │
+  │     └── NO  → Send("visual_agent")─┤
+  │               Send("audio_agent") ─┤
+  │               Send("text_agent")  ─┘
   │
-  └── fusion → END
+  └── fusion (fan-in: waits for all agents) → END
 ```
 
-**Conditional routing:** Podcast videos skip visual analysis (minimal visual change). This is a real agentic decision based on content classification.
+**Parallel dispatch via Send API:** The classifier returns a list of `Send()` objects, dispatching agents concurrently rather than sequentially. LangGraph runs all dispatched agents in parallel and waits for all to complete before executing the fusion fan-in node.
 
-**State reducers:** Each agent writes to its own state field using `Annotated[list[T], operator.add]`, preventing overwrites.
+**Conditional fan-out:** Podcast videos skip visual analysis (minimal visual change) — the classifier simply omits `Send("visual_agent")` from the dispatch list.
+
+**State reducers:** Each agent writes to its own state field using `Annotated[list[T], operator.add]`, preventing overwrites during concurrent execution.
 
 ### Generation Subgraph
 
