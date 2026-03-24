@@ -5,11 +5,12 @@ from fastapi.staticfiles import StaticFiles
 from app.database import init_db
 from app.config import UPLOAD_DIR, OUTPUT_DIR
 from app.routers import videos, pipeline, clips, music
+from app.routers.chat import router as chat_router
 
 app = FastAPI(
     title="AutoClip AI",
-    description="AI-powered video clipping engine",
-    version="1.0.0",
+    description="Conversational AI-powered video clipping with multimodal analysis",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -20,6 +21,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Chat interface (primary)
+app.include_router(chat_router)
+
+# Legacy REST endpoints (still available)
 app.include_router(videos.router)
 app.include_router(pipeline.router)
 app.include_router(clips.router)
@@ -37,4 +42,4 @@ def startup():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "service": "AutoClip AI"}
+    return {"status": "ok", "service": "AutoClip AI", "version": "2.0.0"}
