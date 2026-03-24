@@ -36,4 +36,11 @@ export const getDownloadUrl = (id, format) => `/api/clips/${id}/download/${forma
 // Music
 export const searchMusic = (q, mood) => api.get('/music/search', { params: { q, mood } })
 
+// Chat
+export const sendChatMessage = (message, videoId) =>
+  api.post('/chat/message', { message, video_id: videoId })
+
+export const getAnalysisStatus = (videoId) =>
+  api.get(`/chat/analysis/${videoId}`)
+
 export default api
