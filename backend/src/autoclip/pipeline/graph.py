@@ -4,17 +4,17 @@ import json
 from pathlib import Path
 from langgraph.graph import StateGraph, END
 
-from app.pipeline.state import PipelineState
-from app.pipeline.agents.classifier import classify_video
-from app.pipeline.agents.visual_agent import run_visual_agent
-from app.pipeline.agents.audio_agent import run_audio_agent
-from app.pipeline.agents.text_agent import run_text_agent
-from app.pipeline.agents.fusion import run_fusion
-from app.pipeline.agents.clip_selector import run_clip_selector
-from app.pipeline.agents.production import run_production
-from app.utils.ffmpeg import extract_audio
-from app.services.transcription import transcribe_audio
-from app.services.scene_detector import detect_scenes
+from autoclip.pipeline.state import PipelineState
+from autoclip.pipeline.agents.classifier import classify_video
+from autoclip.pipeline.agents.visual_agent import run_visual_agent
+from autoclip.pipeline.agents.audio_agent import run_audio_agent
+from autoclip.pipeline.agents.text_agent import run_text_agent
+from autoclip.pipeline.agents.fusion import run_fusion
+from autoclip.pipeline.agents.clip_selector import run_clip_selector
+from autoclip.pipeline.agents.production import run_production
+from autoclip.utils.ffmpeg import extract_audio
+from autoclip.services.transcription import transcribe_audio
+from autoclip.services.scene_detector import detect_scenes
 
 
 # ─── Node wrappers ────────────────────────────────────────────

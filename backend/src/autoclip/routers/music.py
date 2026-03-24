@@ -1,6 +1,6 @@
 """Music search endpoint using Pexels."""
 from fastapi import APIRouter, Query
-from app.services.music_service import search_music
+from autoclip.services.music_service import search_music
 
 router = APIRouter(prefix="/api/music", tags=["music"])
 

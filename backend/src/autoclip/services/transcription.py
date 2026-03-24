@@ -1,6 +1,6 @@
 """AssemblyAI transcription service with word-level timestamps."""
 import assemblyai as aai
-from app.config import ASSEMBLYAI_API_KEY
+from autoclip.config import ASSEMBLYAI_API_KEY
 
 aai.settings.api_key = ASSEMBLYAI_API_KEY
 

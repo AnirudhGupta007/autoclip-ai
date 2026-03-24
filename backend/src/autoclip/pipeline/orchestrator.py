@@ -2,16 +2,16 @@
 import json
 import asyncio
 from pathlib import Path
-from app.config import UPLOAD_DIR, OUTPUT_DIR
-from app.database import SessionLocal
-from app.models import Video, Clip, generate_id
-from app.utils.ffmpeg import extract_audio, get_video_info
-from app.services.transcription import transcribe_audio
-from app.services.scene_detector import detect_scenes
-from app.services.analysis import chunk_transcript, score_chunk
-from app.services.video_processor import cut_clip
-from app.services.caption_engine import generate_captions
-from app.services.thumbnail_gen import generate_thumbnail
+from autoclip.config import UPLOAD_DIR, OUTPUT_DIR
+from autoclip.database import SessionLocal
+from autoclip.models import Video, Clip, generate_id
+from autoclip.utils.ffmpeg import extract_audio, get_video_info
+from autoclip.services.transcription import transcribe_audio
+from autoclip.services.scene_detector import detect_scenes
+from autoclip.services.analysis import chunk_transcript, score_chunk
+from autoclip.services.video_processor import cut_clip
+from autoclip.services.caption_engine import generate_captions
+from autoclip.services.thumbnail_gen import generate_thumbnail
 
 
 def _sse_event(event: str, data: dict) -> str:
@@ -157,7 +157,7 @@ async def run_pipeline(video_id: str):
             # Burn captions onto video
             final_path = str(clip_dir / "final.mp4")
             try:
-                from app.utils.ffmpeg import burn_captions
+                from autoclip.utils.ffmpeg import burn_captions
                 await asyncio.to_thread(burn_captions, raw_path, ass_path, final_path)
             except Exception:
                 # If caption burning fails, use raw clip

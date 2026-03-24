@@ -2,8 +2,8 @@
 import json
 import time
 from google import genai
-from app.config import GEMINI_API_KEY, GEMINI_RPM_DELAY
-from app.pipeline.state import PipelineState, TextSegment
+from autoclip.config import GEMINI_API_KEY, GEMINI_RPM_DELAY
+from autoclip.pipeline.state import PipelineState, TextSegment
 
 
 def run_text_agent(state: PipelineState) -> dict:

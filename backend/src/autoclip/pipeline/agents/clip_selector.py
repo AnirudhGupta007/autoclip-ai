@@ -3,9 +3,9 @@ import json
 import time
 from pathlib import Path
 from google import genai
-from app.config import GEMINI_API_KEY, GEMINI_RPM_DELAY
-from app.models import generate_id
-from app.pipeline.state import PipelineState, ClipConfig, ProducedClip, Moment
+from autoclip.config import GEMINI_API_KEY, GEMINI_RPM_DELAY
+from autoclip.models import generate_id
+from autoclip.pipeline.state import PipelineState, ClipConfig, ProducedClip, Moment
 
 
 def _select_moments(

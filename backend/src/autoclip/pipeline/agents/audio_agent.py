@@ -1,7 +1,7 @@
 """Audio analysis agent — extracts timeline of audio signals using librosa."""
 import numpy as np
 from pathlib import Path
-from app.pipeline.state import PipelineState, AudioSignal
+from autoclip.pipeline.state import PipelineState, AudioSignal
 
 
 def run_audio_agent(state: PipelineState) -> dict:

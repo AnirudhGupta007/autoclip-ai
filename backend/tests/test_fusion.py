@@ -1,7 +1,7 @@
 """Tests for the temporal fusion node."""
 import pytest
-from app.pipeline.state import VisualSignal, AudioSignal, TextSegment, Moment
-from app.pipeline.agents.fusion import (
+from autoclip.pipeline.state import VisualSignal, AudioSignal, TextSegment, Moment
+from autoclip.pipeline.agents.fusion import (
     _find_convergence_windows,
     _merge_overlapping_windows,
     run_fusion,

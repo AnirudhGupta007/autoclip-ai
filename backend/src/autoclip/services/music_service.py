@@ -1,6 +1,6 @@
 """Pexels music search integration."""
 import httpx
-from app.config import PEXELS_API_KEY
+from autoclip.config import PEXELS_API_KEY
 
 PEXELS_AUDIO_URL = "https://api.pexels.com/videos/search"
 

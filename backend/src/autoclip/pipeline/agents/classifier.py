@@ -2,9 +2,9 @@
 import base64
 from pathlib import Path
 from google import genai
-from app.config import GEMINI_API_KEY
-from app.utils.ffmpeg import extract_frame
-from app.pipeline.state import PipelineState
+from autoclip.config import GEMINI_API_KEY
+from autoclip.utils.ffmpeg import extract_frame
+from autoclip.pipeline.state import PipelineState
 
 
 def classify_video(state: PipelineState) -> dict:

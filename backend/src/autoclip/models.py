@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from sqlalchemy import Column, String, Float, Text, ForeignKey, DateTime, JSON
 from sqlalchemy.orm import relationship
-from app.database import Base
+from autoclip.database import Base
 
 
 def generate_id():

@@ -1,12 +1,12 @@
 """Tests for LangGraph pipeline graph structure."""
 import pytest
-from app.pipeline.graph import (
+from autoclip.pipeline.graph import (
     build_analysis_graph,
     build_generation_graph,
     should_skip_visual,
     after_fusion,
 )
-from app.pipeline.state import Moment
+from autoclip.pipeline.state import Moment
 
 
 class TestConditionalRouting:

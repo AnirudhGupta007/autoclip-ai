@@ -1,7 +1,7 @@
 """Thumbnail generation from video clips."""
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
-from app.utils.ffmpeg import extract_frame
+from autoclip.utils.ffmpeg import extract_frame
 
 
 def generate_thumbnail(
@@ -18,7 +18,7 @@ def generate_thumbnail(
 
     # Extract frame at 1/3 of the way through (usually more interesting than first frame)
     if timestamp is None:
-        from app.utils.ffmpeg import get_video_info
+        from autoclip.utils.ffmpeg import get_video_info
         info = get_video_info(video_path)
         timestamp = info["duration"] / 3
 

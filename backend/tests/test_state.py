@@ -1,6 +1,6 @@
 """Tests for pipeline state definitions."""
 import pytest
-from app.pipeline.state import (
+from autoclip.pipeline.state import (
     VisualSignal, AudioSignal, TextSegment, Moment, ClipConfig, ProducedClip, PipelineState
 )
 

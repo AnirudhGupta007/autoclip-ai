@@ -2,7 +2,7 @@
 import json
 import time
 from google import genai
-from app.config import GEMINI_API_KEY, GEMINI_RPM_DELAY
+from autoclip.config import GEMINI_API_KEY, GEMINI_RPM_DELAY
 
 _client = None
 MODEL = "gemini-2.0-flash"

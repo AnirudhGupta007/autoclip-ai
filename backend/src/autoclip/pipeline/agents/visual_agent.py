@@ -3,9 +3,9 @@ import json
 import time
 from pathlib import Path
 from google import genai
-from app.config import GEMINI_API_KEY, GEMINI_RPM_DELAY
-from app.utils.ffmpeg import extract_frame, get_video_info
-from app.pipeline.state import PipelineState, VisualSignal
+from autoclip.config import GEMINI_API_KEY, GEMINI_RPM_DELAY
+from autoclip.utils.ffmpeg import extract_frame, get_video_info
+from autoclip.pipeline.state import PipelineState, VisualSignal
 
 
 def _analyze_frame_batch(client, frame_paths: list[str], timestamps: list[float]) -> list[dict]:

@@ -1,7 +1,7 @@
 """Tests for chat intent parsing and response generation."""
 import pytest
-from app.pipeline.state import ClipConfig, Moment, ProducedClip
-from app.pipeline.chat import intent_to_clip_configs, generate_chat_response
+from autoclip.pipeline.state import ClipConfig, Moment, ProducedClip
+from autoclip.pipeline.chat import intent_to_clip_configs, generate_chat_response
 
 
 class TestIntentToClipConfigs:

@@ -3,11 +3,11 @@ import shutil
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from sqlalchemy.orm import Session
-from app.database import get_db
-from app.models import Video, generate_id
-from app.schemas import VideoOut
-from app.config import UPLOAD_DIR, MAX_UPLOAD_SIZE, OUTPUT_DIR
-from app.utils.ffmpeg import get_video_info
+from autoclip.database import get_db
+from autoclip.models import Video, generate_id
+from autoclip.schemas import VideoOut
+from autoclip.config import UPLOAD_DIR, MAX_UPLOAD_SIZE, OUTPUT_DIR
+from autoclip.utils.ffmpeg import get_video_info
 
 router = APIRouter(prefix="/api/videos", tags=["videos"])
 

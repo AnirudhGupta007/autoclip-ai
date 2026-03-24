@@ -2,10 +2,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from app.database import init_db
-from app.config import UPLOAD_DIR, OUTPUT_DIR
-from app.routers import videos, pipeline, clips, music
-from app.routers.chat import router as chat_router
+from autoclip.database import init_db
+from autoclip.config import UPLOAD_DIR, OUTPUT_DIR
+from autoclip.routers import videos, pipeline, clips, music
+from autoclip.routers.chat import router as chat_router
 
 app = FastAPI(
     title="AutoClip AI",

@@ -8,11 +8,11 @@ from typing import Optional
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
-from app.database import get_db
-from app.models import Video, Clip, generate_id
-from app.pipeline.chat import parse_user_intent, intent_to_clip_configs, generate_chat_response
-from app.pipeline.graph import analysis_pipeline, generation_pipeline
-from app.pipeline.state import PipelineState, ClipConfig
+from autoclip.database import get_db
+from autoclip.models import Video, Clip, generate_id
+from autoclip.pipeline.chat import parse_user_intent, intent_to_clip_configs, generate_chat_response
+from autoclip.pipeline.graph import analysis_pipeline, generation_pipeline
+from autoclip.pipeline.state import PipelineState, ClipConfig
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 

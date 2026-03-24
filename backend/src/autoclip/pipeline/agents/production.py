@@ -1,12 +1,12 @@
 """Production node — cuts, captions, reframes, and exports clips."""
 import shutil
 from pathlib import Path
-from app.config import OUTPUT_DIR, EXPORT_FORMATS
-from app.utils.ffmpeg import cut_video, burn_captions, reframe_video, extract_frame
-from app.services.caption_engine import generate_captions
-from app.services.video_processor import detect_face_position
-from app.services.thumbnail_gen import generate_thumbnail
-from app.pipeline.state import PipelineState, ProducedClip
+from autoclip.config import OUTPUT_DIR, EXPORT_FORMATS
+from autoclip.utils.ffmpeg import cut_video, burn_captions, reframe_video, extract_frame
+from autoclip.services.caption_engine import generate_captions
+from autoclip.services.video_processor import detect_face_position
+from autoclip.services.thumbnail_gen import generate_thumbnail
+from autoclip.pipeline.state import PipelineState, ProducedClip
 
 
 def run_production(state: PipelineState) -> dict:

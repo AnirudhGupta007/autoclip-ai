@@ -1,6 +1,6 @@
 """Animated caption generation in ASS format with multiple styles."""
 from pathlib import Path
-from app.utils.subtitle import seconds_to_ass_time, build_ass_file
+from autoclip.utils.subtitle import seconds_to_ass_time, build_ass_file
 
 
 def _group_words(words: list[dict], max_words: int = 5) -> list[list[dict]]:

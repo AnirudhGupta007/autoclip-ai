@@ -2,8 +2,8 @@
 import cv2
 import numpy as np
 from pathlib import Path
-from app.utils.ffmpeg import cut_video, reframe_video, get_video_info
-from app.config import EXPORT_FORMATS
+from autoclip.utils.ffmpeg import cut_video, reframe_video, get_video_info
+from autoclip.config import EXPORT_FORMATS
 
 
 face_cascade = cv2.CascadeClassifier(

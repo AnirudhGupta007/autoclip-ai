@@ -4,13 +4,13 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from app.database import get_db
-from app.models import Clip, Video
-from app.schemas import ClipOut, ClipUpdate, ExportRequest
-from app.config import OUTPUT_DIR, EXPORT_FORMATS
-from app.services.video_processor import export_clip
-from app.services.caption_engine import generate_captions
-from app.utils.ffmpeg import burn_captions
+from autoclip.database import get_db
+from autoclip.models import Clip, Video
+from autoclip.schemas import ClipOut, ClipUpdate, ExportRequest
+from autoclip.config import OUTPUT_DIR, EXPORT_FORMATS
+from autoclip.services.video_processor import export_clip
+from autoclip.services.caption_engine import generate_captions
+from autoclip.utils.ffmpeg import burn_captions
 
 router = APIRouter(prefix="/api/clips", tags=["clips"])
 
@@ -70,7 +70,7 @@ async def update_clip(clip_id: str, update: ClipUpdate, db: Session = Depends(ge
         clip_dir = OUTPUT_DIR / clip.video_id / "clips" / clip.id
 
         # Re-cut from source
-        from app.services.video_processor import cut_clip
+        from autoclip.services.video_processor import cut_clip
         raw_path = str(clip_dir / "raw.mp4")
         await asyncio.to_thread(
             cut_clip, video.file_path, raw_path,

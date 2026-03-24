@@ -2,10 +2,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from app.database import get_db
-from app.models import Video
-from app.schemas import PipelineStatus
-from app.pipeline.orchestrator import run_pipeline
+from autoclip.database import get_db
+from autoclip.models import Video
+from autoclip.schemas import PipelineStatus
+from autoclip.pipeline.orchestrator import run_pipeline
 
 router = APIRouter(prefix="/api/pipeline", tags=["pipeline"])
 
