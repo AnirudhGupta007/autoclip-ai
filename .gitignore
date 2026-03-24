@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.env
+*.db
+uploads/
+outputs/
+node_modules/
+dist/
+.vite/
+.DS_Store
+*.log
