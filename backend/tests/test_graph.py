@@ -1,10 +1,14 @@
 """Tests for LangGraph pipeline graph structure."""
 import pytest
 from autoclip.pipeline.graph import (
-    build_analysis_graph,
-    build_generation_graph,
-    should_skip_visual,
-    after_fusion,
+    build_pipeline_graph,
+    build_analysis_subgraph,
+    build_generation_subgraph,
+    route_by_video_type,
+    route_after_fusion,
+    route_analysis_check,
+    pipeline,
+    generation_only,
 )
 from autoclip.pipeline.state import Moment
 
@@ -12,68 +16,118 @@ from autoclip.pipeline.state import Moment
 class TestConditionalRouting:
     def test_skip_visual_for_podcast(self):
         state = {"video_type": "podcast"}
-        assert should_skip_visual(state) == "skip_visual"
+        assert route_by_video_type(state) == "skip_visual"
 
     def test_run_visual_for_talking_head(self):
         state = {"video_type": "talking_head"}
-        assert should_skip_visual(state) == "run_visual"
+        assert route_by_video_type(state) == "run_visual"
 
     def test_run_visual_for_presentation(self):
         state = {"video_type": "presentation"}
-        assert should_skip_visual(state) == "run_visual"
+        assert route_by_video_type(state) == "run_visual"
 
     def test_run_visual_for_mixed(self):
         state = {"video_type": "mixed"}
-        assert should_skip_visual(state) == "run_visual"
+        assert route_by_video_type(state) == "run_visual"
 
     def test_run_visual_default(self):
         state = {}
-        assert should_skip_visual(state) == "run_visual"
+        assert route_by_video_type(state) == "run_visual"
 
     def test_after_fusion_has_moments(self):
         state = {
             "moment_map": [
-                Moment(0, 10, 0.5, 0.5, 0.5, 0.5, [], "", ""),
+                Moment(0, 10, 0.5, 0.5, 0.5, 0.5, 2, [], "", ""),
             ]
         }
-        assert after_fusion(state) == "has_moments"
+        assert route_after_fusion(state) == "has_moments"
 
     def test_after_fusion_no_moments(self):
         state = {"moment_map": []}
-        assert after_fusion(state) == "no_moments"
+        assert route_after_fusion(state) == "no_moments"
 
     def test_after_fusion_missing_key(self):
         state = {}
-        assert after_fusion(state) == "no_moments"
+        assert route_after_fusion(state) == "no_moments"
+
+    def test_analysis_check_needs_analysis(self):
+        state = {"analysis_complete": False}
+        assert route_analysis_check(state) == "needs_analysis"
+
+    def test_analysis_check_skip_to_selection(self):
+        state = {"analysis_complete": True}
+        assert route_analysis_check(state) == "skip_to_selection"
+
+    def test_analysis_check_missing_key(self):
+        state = {}
+        assert route_analysis_check(state) == "needs_analysis"
 
 
-class TestGraphStructure:
-    def test_analysis_graph_compiles(self):
-        graph = build_analysis_graph()
+class TestSubgraphStructure:
+    def test_analysis_subgraph_compiles(self):
+        graph = build_analysis_subgraph()
         compiled = graph.compile()
         assert compiled is not None
 
-    def test_generation_graph_compiles(self):
-        graph = build_generation_graph()
-        compiled = graph.compile()
-        assert compiled is not None
-
-    def test_analysis_graph_has_nodes(self):
-        graph = build_analysis_graph()
-        # Check that key nodes exist
+    def test_analysis_subgraph_has_nodes(self):
+        graph = build_analysis_subgraph()
         node_names = set(graph.nodes.keys())
-        expected_nodes = {
-            "transcription", "scene_detection", "classifier",
-            "visual_agent", "audio_agent", "text_agent",
-            "fusion", "clip_selector", "production",
-        }
-        assert expected_nodes.issubset(node_names)
+        expected = {"classifier", "visual_agent", "audio_agent", "text_agent", "fusion"}
+        assert expected.issubset(node_names)
 
-    def test_generation_graph_has_nodes(self):
-        graph = build_generation_graph()
+    def test_generation_subgraph_compiles(self):
+        graph = build_generation_subgraph()
+        compiled = graph.compile()
+        assert compiled is not None
+
+    def test_generation_subgraph_has_nodes(self):
+        graph = build_generation_subgraph()
         node_names = set(graph.nodes.keys())
         assert "clip_selector" in node_names
         assert "production" in node_names
+        assert "ffmpeg_tools" in node_names
         # Should NOT have analysis nodes
         assert "transcription" not in node_names
         assert "visual_agent" not in node_names
+
+
+class TestMainPipelineGraph:
+    def test_pipeline_graph_compiles(self):
+        graph = build_pipeline_graph()
+        # Compile without checkpointer for testing
+        compiled = graph.compile()
+        assert compiled is not None
+
+    def test_pipeline_graph_has_nodes(self):
+        graph = build_pipeline_graph()
+        node_names = set(graph.nodes.keys())
+        assert "transcription" in node_names
+        assert "scene_detection" in node_names
+        assert "analysis" in node_names  # subgraph node
+        assert "generation" in node_names  # subgraph node
+
+    def test_compiled_pipeline_exists(self):
+        """The pre-compiled pipeline with checkpointer should be importable."""
+        assert pipeline is not None
+
+    def test_compiled_generation_exists(self):
+        assert generation_only is not None
+
+
+class TestToolIntegration:
+    def test_production_tools_registered(self):
+        """Verify FFmpeg tools are available in generation subgraph."""
+        from autoclip.pipeline.tools import PRODUCTION_TOOLS, ANALYSIS_TOOLS
+        assert len(PRODUCTION_TOOLS) == 5
+        assert len(ANALYSIS_TOOLS) == 4
+
+        # Check tool names
+        prod_names = {t.name for t in PRODUCTION_TOOLS}
+        assert "tool_cut_clip" in prod_names
+        assert "tool_burn_captions" in prod_names
+        assert "tool_reframe_video" in prod_names
+        assert "tool_generate_thumbnail" in prod_names
+
+        analysis_names = {t.name for t in ANALYSIS_TOOLS}
+        assert "tool_extract_frames" in analysis_names
+        assert "tool_detect_scenes" in analysis_names

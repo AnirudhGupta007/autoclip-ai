@@ -164,6 +164,7 @@ def run_fusion(state: PipelineState) -> dict:
             audio_energy=w["audio_energy"],
             text_hook_strength=w["text_hook_strength"],
             convergence_score=w["convergence_score"],
+            modalities_active=w["active_modalities"],
             style_tags=w["style_tags"],
             description=w["description"],
             transcript=w["transcript"],

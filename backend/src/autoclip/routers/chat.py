@@ -11,7 +11,7 @@ from sse_starlette.sse import EventSourceResponse
 from autoclip.database import get_db
 from autoclip.models import Video, Clip, generate_id
 from autoclip.pipeline.chat import parse_user_intent, intent_to_clip_configs, generate_chat_response
-from autoclip.pipeline.graph import analysis_pipeline, generation_pipeline
+from autoclip.pipeline.graph import pipeline, generation_only
 from autoclip.pipeline.state import PipelineState, ClipConfig
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -93,6 +93,9 @@ async def chat_message(msg: ChatMessage, db: Session = Depends(get_db)):
 
         clip_configs = intent_to_clip_configs(params)
 
+        # Checkpointing config — thread_id ties state to this video's conversation
+        run_config = {"configurable": {"thread_id": video_id}}
+
         # Check if analysis exists
         if has_analysis:
             # Reuse existing analysis, just generate new clips
@@ -101,15 +104,19 @@ async def chat_message(msg: ChatMessage, db: Session = Depends(get_db)):
                 **cached,
                 "clip_configs": clip_configs,
             }
-            result = await asyncio.to_thread(generation_pipeline.invoke, state)
+            result = await asyncio.to_thread(generation_only.invoke, state)
         else:
-            # Run full analysis + generation
+            # Run full analysis + generation via checkpointed pipeline
             state: PipelineState = {
                 "video_id": video_id,
                 "video_path": video.file_path,
                 "clip_configs": clip_configs,
                 "analysis_complete": False,
                 "needs_reanalysis": False,
+                "visual_timeline": [],
+                "audio_timeline": [],
+                "text_segments": [],
+                "scene_boundaries": [],
             }
 
             # Update video status
@@ -117,7 +124,9 @@ async def chat_message(msg: ChatMessage, db: Session = Depends(get_db)):
             db.commit()
 
             try:
-                result = await asyncio.to_thread(analysis_pipeline.invoke, state)
+                result = await asyncio.to_thread(
+                    pipeline.invoke, state, run_config
+                )
             except Exception as e:
                 video.status = "failed"
                 db.commit()

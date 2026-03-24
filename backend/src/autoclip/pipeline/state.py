@@ -1,28 +1,67 @@
-"""LangGraph pipeline state definitions."""
-from typing import TypedDict, Optional
+"""LangGraph pipeline state definitions with Pydantic structured output."""
+from typing import TypedDict, Optional, Annotated, Literal
 from dataclasses import dataclass, field
+from pydantic import BaseModel, Field
+import operator
 
+
+# ─── Pydantic models for Gemini structured output ─────────────
+
+class FrameAnalysis(BaseModel):
+    """Structured output from Gemini Vision for a single frame."""
+    energy: float = Field(ge=0.0, le=1.0, description="Visual dynamism 0-1")
+    emotion: Literal["neutral", "happy", "surprised", "angry", "sad", "excited"] = "neutral"
+    emotion_confidence: float = Field(ge=0.0, le=1.0, default=0.5)
+    description: str = Field(max_length=100, default="")
+    has_text_on_screen: bool = False
+    scene_type: Literal["talking_head", "presentation", "broll", "audience"] = "talking_head"
+
+
+class TranscriptSegment(BaseModel):
+    """Structured output from Gemini for a transcript segment."""
+    start_line: int
+    end_line: int
+    hook_type: Literal["hot_take", "story", "quote", "educational", "controversial", "emotional", "funny", "none"]
+    hook_strength: float = Field(ge=0.0, le=1.0)
+    topic: str = Field(max_length=50)
+    is_complete: bool = True
+
+
+class EngagementScores(BaseModel):
+    """Structured output for clip engagement scoring."""
+    hook: int = Field(ge=1, le=10)
+    emotion: int = Field(ge=1, le=10)
+    shareability: int = Field(ge=1, le=10)
+    retention: int = Field(ge=1, le=10)
+    controversy: int = Field(ge=1, le=10)
+    novelty: int = Field(ge=1, le=10)
+
+
+# ─── Signal dataclasses ──────────────────────────────────────
 
 @dataclass
 class VisualSignal:
     """A visual event detected in a video frame."""
     timestamp: float
-    energy: float           # 0-1, how visually dynamic
-    emotion: str            # neutral, happy, surprised, angry, sad
+    energy: float
+    emotion: str
     emotion_confidence: float
-    description: str        # what's happening visually
+    description: str
     has_text_on_screen: bool = False
-    scene_type: str = "talking_head"  # talking_head, presentation, broll, audience
+    scene_type: str = "talking_head"
 
 
 @dataclass
 class AudioSignal:
     """An audio event detected in the audio track."""
     timestamp: float
-    energy: float           # 0-1, volume/amplitude
-    speech_pace: float      # words per minute estimate
-    event_type: str         # speech, laughter, applause, silence, music
-    pitch_change: float     # 0-1, how much pitch changed vs baseline
+    energy: float
+    speech_pace: float
+    event_type: str  # speech, laughter, applause, silence, music
+    pitch_change: float
+    rms_db: float = 0.0
+    spectral_centroid: float = 0.0
+    tempo_local: float = 0.0
 
 
 @dataclass
@@ -31,10 +70,10 @@ class TextSegment:
     start: float
     end: float
     text: str
-    hook_type: str          # hot_take, story, quote, educational, controversial, emotional, none
-    hook_strength: float    # 0-1
-    topic: str              # brief topic label
-    is_complete: bool       # does it form a complete thought?
+    hook_type: str
+    hook_strength: float
+    topic: str
+    is_complete: bool
 
 
 @dataclass
@@ -45,8 +84,9 @@ class Moment:
     visual_energy: float
     audio_energy: float
     text_hook_strength: float
-    convergence_score: float    # how many modalities agree this is interesting
-    style_tags: list[str]       # funny, dramatic, educational, motivational, controversial
+    convergence_score: float
+    modalities_active: int
+    style_tags: list[str]
     description: str
     transcript: str
 
@@ -54,10 +94,10 @@ class Moment:
 @dataclass
 class ClipConfig:
     """User-specified clip configuration."""
-    moment: Optional[float] = None  # None = auto-select
-    length: int = 30                # seconds
-    style: str = "any"              # funny, dramatic, educational, motivational, controversial, any
-    frame: str = "9:16"             # 9:16, 1:1, 16:9
+    moment: Optional[float] = None
+    length: int = 30
+    style: str = "any"
+    frame: str = "9:16"
     caption_style: str = "bold_pop"
 
 
@@ -78,31 +118,44 @@ class ProducedClip:
     style_tags: list[str]
 
 
+# ─── LangGraph State ─────────────────────────────────────────
+# Using Annotated with operator.add for list accumulation across nodes
+
+def _replace(existing, new):
+    """Reducer that replaces the old value with the new value."""
+    return new
+
+
 class PipelineState(TypedDict, total=False):
-    """LangGraph state that flows through the pipeline."""
+    """LangGraph state that flows through the pipeline graph.
+
+    Uses annotated reducers so parallel nodes can independently
+    append to list fields without overwriting each other.
+    """
     # Video info
     video_id: str
     video_path: str
-    video_type: str  # talking_head, presentation, podcast, mixed
+    video_type: Annotated[str, _replace]
 
-    # Analysis outputs (computed once, reused)
-    visual_timeline: list[VisualSignal]
-    audio_timeline: list[AudioSignal]
-    text_segments: list[TextSegment]
-    moment_map: list[Moment]
-    scene_boundaries: list[float]
-    transcript_data: dict  # raw transcript from AssemblyAI
+    # Analysis outputs — use add reducer for parallel agent writes
+    visual_timeline: Annotated[list[VisualSignal], operator.add]
+    audio_timeline: Annotated[list[AudioSignal], operator.add]
+    text_segments: Annotated[list[TextSegment], operator.add]
+    scene_boundaries: Annotated[list[float], operator.add]
+
+    # Fusion output
+    moment_map: Annotated[list[Moment], _replace]
+
+    # Transcript (shared across agents)
+    transcript_data: Annotated[dict, _replace]
 
     # User request
     clip_configs: list[ClipConfig]
 
     # Produced clips
-    clips: list[ProducedClip]
+    clips: Annotated[list[ProducedClip], _replace]
 
     # Control flow
     needs_reanalysis: bool
-    analysis_complete: bool
+    analysis_complete: Annotated[bool, _replace]
     error: Optional[str]
-
-    # SSE progress reporting
-    progress_callback: Optional[object]

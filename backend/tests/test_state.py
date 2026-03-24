@@ -84,11 +84,13 @@ class TestMoment:
             audio_energy=0.7,
             text_hook_strength=0.9,
             convergence_score=0.85,
+            modalities_active=3,
             style_tags=["funny", "story"],
             description="Speaker tells a joke",
             transcript="And then I realized the database was just a spreadsheet",
         )
         assert moment.convergence_score == 0.85
+        assert moment.modalities_active == 3
         assert "funny" in moment.style_tags
         assert moment.end - moment.start == 30.0
 

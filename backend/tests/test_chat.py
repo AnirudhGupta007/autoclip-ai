@@ -73,6 +73,7 @@ class TestGenerateChatResponse:
             Moment(
                 start=10, end=25, visual_energy=0.8, audio_energy=0.7,
                 text_hook_strength=0.9, convergence_score=0.85,
+                modalities_active=3,
                 style_tags=["funny"], description="Speaker tells joke",
                 transcript="test",
             ),
