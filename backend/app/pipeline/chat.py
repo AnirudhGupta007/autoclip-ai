@@ -115,8 +115,6 @@ def generate_chat_response(
     error: str = None,
 ) -> str:
     """Generate a natural language response based on intent and results."""
-    client = genai.Client(api_key=GEMINI_API_KEY)
-
     if error:
         return f"Something went wrong: {error}. Try again or upload a different video."
 
