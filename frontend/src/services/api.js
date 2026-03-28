@@ -23,9 +23,6 @@ export const getVideos = () => api.get('/videos')
 export const getVideo = (id) => api.get(`/videos/${id}`)
 export const deleteVideo = (id) => api.delete(`/videos/${id}`)
 
-// Pipeline
-export const getPipelineStatus = (videoId) => api.get(`/pipeline/status/${videoId}`)
-
 // Clips
 export const getClips = (videoId) => api.get('/clips', { params: { video_id: videoId } })
 export const getClip = (id) => api.get(`/clips/${id}`)

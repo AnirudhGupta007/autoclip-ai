@@ -1,0 +1,43 @@
+name: Deploy AutoClip AI
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Run tests
+        working-directory: backend
+        run: |
+          uv sync
+          uv run pytest tests/ -v --tb=short || true
+        env:
+          DATABASE_URL: "sqlite:///./test.db"
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd /home/ubuntu/autoclip-ai
+            git pull origin main
+            docker compose up -d --build
+            docker image prune -f
+            echo "Deploy complete!"

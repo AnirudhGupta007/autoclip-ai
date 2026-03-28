@@ -2,9 +2,13 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
-
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load .env — check Docker path first, then project root
+for _env in [Path("/app/.env"), BASE_DIR.parent / ".env", BASE_DIR.parent.parent / ".env"]:
+    if _env.exists():
+        load_dotenv(_env)
+        break
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY", "")

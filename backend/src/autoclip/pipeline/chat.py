@@ -1,7 +1,6 @@
 """Chat-driven interface — parses user messages into pipeline actions."""
 import json
 import time
-from dataclasses import asdict
 from google import genai
 from autoclip.config import GEMINI_API_KEY, GEMINI_RPM_DELAY
 from autoclip.pipeline.state import ClipConfig

@@ -1,10 +1,11 @@
 """FastAPI application entry point."""
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from autoclip.database import init_db
 from autoclip.config import UPLOAD_DIR, OUTPUT_DIR
-from autoclip.routers import videos, pipeline, clips, music
+from autoclip.routers import videos, clips, music
 from autoclip.routers.chat import router as chat_router
 
 app = FastAPI(
@@ -13,9 +14,14 @@ app = FastAPI(
     version="2.0.0",
 )
 
+cors_origins = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:5173,http://127.0.0.1:5173"
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -24,9 +30,8 @@ app.add_middleware(
 # Chat interface (primary)
 app.include_router(chat_router)
 
-# Legacy REST endpoints (still available)
+# REST endpoints
 app.include_router(videos.router)
-app.include_router(pipeline.router)
 app.include_router(clips.router)
 app.include_router(music.router)
 

@@ -3,7 +3,7 @@
 Architecture:
     - Analysis subgraph: transcription → scene detection → classifier
         → [fan-out] visual_agent | audio_agent | text_agent [fan-in] → fusion
-    - Generation subgraph: clip_selector → production (with ToolNode)
+    - Generation subgraph: clip_selector → production
     - Main graph: orchestrates analysis + generation with checkpointing
 
 Key LangGraph features used:
@@ -11,7 +11,6 @@ Key LangGraph features used:
     - Subgraphs for modular pipeline stages
     - Fan-out / fan-in for parallel multimodal agents
     - Conditional edges for video-type routing
-    - ToolNode for FFmpeg tool calling
     - MemorySaver checkpointing for conversation persistence
     - Send API for dynamic parallel dispatch
 """
@@ -20,8 +19,6 @@ from pathlib import Path
 from langgraph.graph import StateGraph, END, START
 from langgraph.types import Send
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.prebuilt import ToolNode
-
 from autoclip.pipeline.state import PipelineState
 from autoclip.pipeline.agents.classifier import classify_video
 from autoclip.pipeline.agents.visual_agent import run_visual_agent
@@ -30,7 +27,6 @@ from autoclip.pipeline.agents.text_agent import run_text_agent
 from autoclip.pipeline.agents.fusion import run_fusion
 from autoclip.pipeline.agents.clip_selector import run_clip_selector
 from autoclip.pipeline.agents.production import run_production
-from autoclip.pipeline.tools import PRODUCTION_TOOLS, ANALYSIS_TOOLS
 from autoclip.utils.ffmpeg import extract_audio, get_video_info
 from autoclip.services.transcription import transcribe_audio
 from autoclip.services.scene_detector import detect_scenes
@@ -196,17 +192,12 @@ def build_generation_subgraph() -> StateGraph:
 
     Flow: clip_selector → production → END
 
-    The production node uses FFmpeg tools (registered via ToolNode pattern)
-    for cutting, captioning, reframing, and thumbnail generation.
+    The production node handles cutting, captioning, reframing, and thumbnail generation.
     """
     graph = StateGraph(PipelineState)
 
     graph.add_node("clip_selector", selector_node)
     graph.add_node("production", production_node)
-
-    # ToolNode for FFmpeg operations — makes tools available to production
-    tool_node = ToolNode(PRODUCTION_TOOLS)
-    graph.add_node("ffmpeg_tools", tool_node)
 
     graph.set_entry_point("clip_selector")
     graph.add_edge("clip_selector", "production")

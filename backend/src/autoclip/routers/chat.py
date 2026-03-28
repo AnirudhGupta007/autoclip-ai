@@ -1,12 +1,10 @@
 """Chat router — conversational interface for the video clipping pipeline."""
 import json
 import asyncio
-from dataclasses import asdict
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy.orm import Session
-from sse_starlette.sse import EventSourceResponse
 
 from autoclip.database import get_db
 from autoclip.models import Video, Clip, generate_id
@@ -223,7 +221,7 @@ async def chat_message(msg: ChatMessage, db: Session = Depends(get_db)):
             **cached,
             "clip_configs": [new_config],
         }
-        result = await asyncio.to_thread(generation_pipeline.invoke, gen_state)
+        result = await asyncio.to_thread(generation_only.invoke, gen_state)
 
         new_clips = result.get("clips", [])
         if new_clips:

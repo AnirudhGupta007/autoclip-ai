@@ -1,0 +1,52 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: autoclip
+      POSTGRES_USER: autoclip
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-autoclip_dev_password}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U autoclip"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://autoclip:${POSTGRES_PASSWORD:-autoclip_dev_password}@postgres:5432/autoclip
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      ASSEMBLYAI_API_KEY: ${ASSEMBLYAI_API_KEY}
+      PEXELS_API_KEY: ${PEXELS_API_KEY}
+      LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-Autoclip}
+      LANGSMITH_ENDPOINT: ${LANGSMITH_ENDPOINT:-https://api.smith.langchain.com}
+      CORS_ORIGINS: "*"
+      UPLOAD_DIR: /app/uploads
+      OUTPUT_DIR: /app/outputs
+    volumes:
+      - uploads:/app/uploads
+      - outputs:/app/outputs
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+volumes:
+  pgdata:
+  uploads:
+  outputs:

@@ -25,6 +25,7 @@ dependencies = [
     "langchain-google-genai>=2.0.0",
     "librosa>=0.10.0",
     "soundfile>=0.12.0",
+    "psycopg2-binary>=2.9.0",
 ]
 
 [project.optional-dependencies]
