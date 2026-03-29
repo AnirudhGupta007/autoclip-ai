@@ -21,6 +21,7 @@ RUN mkdir -p /app/uploads /app/outputs
 
 ENV UPLOAD_DIR=/app/uploads
 ENV OUTPUT_DIR=/app/outputs
+ENV PYTHONPATH=/app/src
 
 EXPOSE 8000
 CMD ["uvicorn", "autoclip.main:app", "--host", "0.0.0.0", "--port", "8000"]
