@@ -1,8 +1,21 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Float, Text, ForeignKey, DateTime, JSON
+from sqlalchemy import Column, String, Float, Integer, Text, ForeignKey, DateTime, JSON
 from sqlalchemy.orm import relationship
+from autoclip.config import DATABASE_URL
 from autoclip.database import Base
+
+# pgvector when Postgres is available, JSON column otherwise — same model file works
+# locally (sqlite) and on the deployed instance.
+if DATABASE_URL.startswith("postgres"):
+    try:
+        from pgvector.sqlalchemy import Vector  # type: ignore
+        from autoclip.services.embeddings import EMBEDDING_DIM
+        _EmbeddingColumn = Vector(EMBEDDING_DIM)
+    except Exception:
+        _EmbeddingColumn = JSON
+else:
+    _EmbeddingColumn = JSON
 
 
 def generate_id():
@@ -46,3 +59,28 @@ class Clip(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     video = relationship("Video", back_populates="clips")
+
+
+class MomentRecord(Base):
+    """A multimodal moment surfaced by chunk_analyzer + global_fusion.
+
+    Stored separately from Clip because moments are the analysis primitive —
+    a single video can yield many moments, and the user later picks/produces
+    a subset of them as Clips. Embeddings power semantic moment search.
+    """
+    __tablename__ = "moments"
+
+    id = Column(String, primary_key=True, default=generate_id)
+    video_id = Column(String, ForeignKey("videos.id"), nullable=False, index=True)
+    start = Column(Float, nullable=False)
+    end = Column(Float, nullable=False)
+    description = Column(Text, nullable=True)
+    transcript = Column(Text, nullable=True)
+    style_tags = Column(JSON, default=list)
+    visual_energy = Column(Float, default=0.0)
+    audio_energy = Column(Float, default=0.0)
+    text_hook_strength = Column(Float, default=0.0)
+    convergence_score = Column(Float, default=0.0)
+    modalities_active = Column(Integer, default=0)
+    embedding = Column(_EmbeddingColumn, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

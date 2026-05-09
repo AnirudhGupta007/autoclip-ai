@@ -1,0 +1,8 @@
+[
+  {
+    "video_id": "demo1",
+    "video_path": "uploads/demo1.mp4",
+    "good_windows": [[12.0, 25.0], [54.0, 75.0], [180.0, 210.0]],
+    "notes": "Replace with your own labeled examples. good_windows are seconds-based [start, end] pairs that a human rated as viral-worthy."
+  }
+]

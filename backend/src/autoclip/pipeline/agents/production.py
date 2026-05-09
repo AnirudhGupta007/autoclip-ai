@@ -1,11 +1,13 @@
 """Production node — cuts, captions, reframes, and exports clips."""
 import shutil
+from dataclasses import asdict
 from pathlib import Path
 from autoclip.config import OUTPUT_DIR, EXPORT_FORMATS
 from autoclip.utils.ffmpeg import cut_video, burn_captions, reframe_video, extract_frame
 from autoclip.services.caption_engine import generate_captions
 from autoclip.services.video_processor import detect_face_position
 from autoclip.services.thumbnail_gen import generate_thumbnail
+from autoclip.services import events as pipeline_events
 from autoclip.pipeline.state import PipelineState, ProducedClip
 
 
@@ -95,5 +97,14 @@ def run_production(state: PipelineState) -> dict:
             style_tags=clip.style_tags,
         )
         produced_clips.append(produced_clip)
+        try:
+            pipeline_events.publish_clip_ready(video_id, asdict(produced_clip))
+        except Exception:
+            pass
+
+    try:
+        pipeline_events.publish_done(video_id, {"clip_count": len(produced_clips)})
+    except Exception:
+        pass
 
     return {"clips": produced_clips}

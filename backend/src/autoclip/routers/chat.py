@@ -1,16 +1,20 @@
 """Chat router — conversational interface for the video clipping pipeline."""
 import json
 import asyncio
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy.orm import Session
+from sse_starlette.sse import EventSourceResponse
+
+from autoclip.services import events as pipeline_events
 
 from autoclip.database import get_db
 from autoclip.models import Video, Clip, generate_id
 from autoclip.pipeline.chat import parse_user_intent, intent_to_clip_configs, generate_chat_response
 from autoclip.pipeline.graph import pipeline, generation_only
 from autoclip.pipeline.state import PipelineState, ClipConfig
+from autoclip.services.moment_store import persist_moments
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -111,9 +115,8 @@ async def chat_message(msg: ChatMessage, db: Session = Depends(get_db)):
                 "clip_configs": clip_configs,
                 "analysis_complete": False,
                 "needs_reanalysis": False,
-                "visual_timeline": [],
-                "audio_timeline": [],
-                "text_segments": [],
+                "chunk_plans": [],
+                "moment_map_raw": [],
                 "scene_boundaries": [],
             }
 
@@ -140,16 +143,21 @@ async def chat_message(msg: ChatMessage, db: Session = Depends(get_db)):
         _analysis_cache[video_id] = {
             "video_id": video_id,
             "video_path": video.file_path,
-            "video_type": result.get("video_type", "mixed"),
-            "visual_timeline": result.get("visual_timeline", []),
-            "audio_timeline": result.get("audio_timeline", []),
-            "text_segments": result.get("text_segments", []),
+            "video_duration": result.get("video_duration", 0.0),
             "moment_map": result.get("moment_map", []),
             "scene_boundaries": result.get("scene_boundaries", []),
             "transcript_data": result.get("transcript_data", {}),
             "analysis_complete": True,
             "clips": result.get("clips", []),
         }
+
+        # Phase 2.5: persist moments + embeddings for /api/search
+        try:
+            persist_moments(db, video_id, result.get("moment_map", []))
+        except Exception as e:
+            # Non-fatal — search just won't have data for this video
+            import logging
+            logging.getLogger(__name__).warning("persist_moments failed: %s", e)
 
         clips = result.get("clips", [])
 
@@ -288,6 +296,29 @@ async def chat_message(msg: ChatMessage, db: Session = Depends(get_db)):
     return ChatResponse(response=response_text, intent=intent)
 
 
+@router.get("/stream/{video_id}")
+async def stream_pipeline_events(video_id: str, request: Request):
+    """SSE stream of live pipeline events for a video.
+
+    Frontend opens an EventSource on this URL while the pipeline runs;
+    chunk_analyzer/global_fusion/production publish events via Redis pub/sub.
+    Falls back to a heartbeat-only stream if Redis isn't configured.
+    """
+    async def gen():
+        yield {"event": "open", "data": json.dumps({"video_id": video_id})}
+        try:
+            async for evt in pipeline_events.subscribe(video_id):
+                if await request.is_disconnected():
+                    return
+                yield {"event": evt.get("type", "message"), "data": json.dumps(evt.get("data", {}))}
+                if evt.get("type") == "done":
+                    return
+        except asyncio.CancelledError:
+            return
+
+    return EventSourceResponse(gen())
+
+
 @router.get("/analysis/{video_id}")
 async def get_analysis_status(video_id: str):
     """Check if analysis is cached for a video."""
@@ -297,7 +328,7 @@ async def get_analysis_status(video_id: str):
 
     return {
         "analyzed": cached.get("analysis_complete", False),
-        "video_type": cached.get("video_type", "unknown"),
+        "duration": cached.get("video_duration", 0.0),
         "moment_count": len(cached.get("moment_map", [])),
         "clips_count": len(cached.get("clips", [])),
     }

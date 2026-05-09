@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { Send, Loader2, Sparkles } from 'lucide-react'
-import { uploadVideo, sendChatMessage } from '../services/api'
+import { uploadVideo, sendChatMessage, openPipelineStream } from '../services/api'
 import HeroSection from '../components/HeroSection'
 import VideoBar from '../components/VideoBar'
 import ChatMessage from '../components/ChatMessage'
@@ -18,9 +18,12 @@ export default function Chat() {
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [sending, setSending] = useState(false)
+  const [liveProgress, setLiveProgress] = useState(null)
+  const [liveClips, setLiveClips] = useState([])
 
   const messagesEndRef = useRef(null)
   const inputRef = useRef(null)
+  const streamRef = useRef(null)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -62,6 +65,26 @@ export default function Chat() {
     setInput('')
     setMessages(prev => [...prev, { role: 'user', text }])
     setSending(true)
+    setLiveProgress({ chunks: 0, momentCount: 0 })
+    setLiveClips([])
+
+    if (videoId) {
+      streamRef.current?.close()
+      streamRef.current = openPipelineStream(videoId, {
+        onChunk: (data) => setLiveProgress(p => ({
+          ...(p || {}),
+          chunks: (p?.chunks || 0) + 1,
+          lastChunkMoments: data.moment_count,
+        })),
+        onMoments: (data) => setLiveProgress(p => ({
+          ...(p || {}),
+          momentCount: data.moments?.length || 0,
+        })),
+        onClipReady: (data) => setLiveClips(prev => [...prev, data.clip]),
+        onDone: () => { /* stream closes itself */ },
+        onError: () => streamRef.current?.close(),
+      })
+    }
 
     try {
       const res = await sendChatMessage(text, videoId)
@@ -86,9 +109,15 @@ export default function Chat() {
       ])
     } finally {
       setSending(false)
+      setLiveProgress(null)
+      setLiveClips([])
+      streamRef.current?.close()
+      streamRef.current = null
       inputRef.current?.focus()
     }
   }
+
+  useEffect(() => () => streamRef.current?.close(), [])
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -142,7 +171,7 @@ export default function Chat() {
               ))}
             </AnimatePresence>
 
-            {sending && <ProcessingIndicator />}
+            {sending && <ProcessingIndicator progress={liveProgress} liveClips={liveClips} />}
 
             <div ref={messagesEndRef} />
           </div>

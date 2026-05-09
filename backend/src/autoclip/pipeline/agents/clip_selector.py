@@ -3,7 +3,7 @@ import json
 import time
 from pathlib import Path
 from google import genai
-from autoclip.config import GEMINI_API_KEY, GEMINI_RPM_DELAY
+from autoclip.config import GEMINI_API_KEY, GEMINI_RPM_DELAY, GEMINI_MODEL_LITE
 from autoclip.models import generate_id
 from autoclip.pipeline.state import PipelineState, ClipConfig, ProducedClip, Moment
 
@@ -117,7 +117,7 @@ Return ONLY valid JSON:
 JSON:"""
 
     time.sleep(GEMINI_RPM_DELAY)
-    response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+    response = client.models.generate_content(model=GEMINI_MODEL_LITE, contents=prompt)
     text = response.text.strip()
 
     if "```json" in text:
@@ -153,7 +153,7 @@ Transcript excerpt: {transcript[:300]}
 Return ONLY the title text, nothing else."""
 
     time.sleep(GEMINI_RPM_DELAY)
-    response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+    response = client.models.generate_content(model=GEMINI_MODEL_LITE, contents=prompt)
     return response.text.strip().strip('"')[:50]
 
 

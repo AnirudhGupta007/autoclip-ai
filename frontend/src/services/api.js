@@ -40,4 +40,26 @@ export const sendChatMessage = (message, videoId) =>
 export const getAnalysisStatus = (videoId) =>
   api.get(`/chat/analysis/${videoId}`)
 
+// Server-sent events: live pipeline progress (Phase 3)
+export const openPipelineStream = (videoId, handlers = {}) => {
+  const es = new EventSource(`/api/chat/stream/${videoId}`)
+  const wrap = (h) => (e) => {
+    try { h?.(JSON.parse(e.data || '{}'), e) } catch { h?.({}, e) }
+  }
+  if (handlers.onOpen) es.addEventListener('open', wrap(handlers.onOpen))
+  if (handlers.onChunk) es.addEventListener('chunk_done', wrap(handlers.onChunk))
+  if (handlers.onMoments) es.addEventListener('moments', wrap(handlers.onMoments))
+  if (handlers.onClipReady) es.addEventListener('clip_ready', wrap(handlers.onClipReady))
+  if (handlers.onDone) es.addEventListener('done', (e) => {
+    try { handlers.onDone(JSON.parse(e.data || '{}')) } catch { handlers.onDone({}) }
+    es.close()
+  })
+  if (handlers.onError) es.onerror = handlers.onError
+  return es
+}
+
+// Semantic moment search (Phase 2.5)
+export const searchMoments = (query, { videoId, limit = 10 } = {}) =>
+  api.post('/search', { query, video_id: videoId, limit })
+
 export default api

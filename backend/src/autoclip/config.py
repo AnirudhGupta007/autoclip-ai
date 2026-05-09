@@ -13,6 +13,20 @@ for _env in [Path("/app/.env"), BASE_DIR.parent / ".env", BASE_DIR.parent.parent
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY", "")
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+
+# Native video+audio understanding for chunk analysis
+GEMINI_MODEL_MULTIMODAL = os.getenv("GEMINI_MODEL_MULTIMODAL", "gemini-2.5-flash")
+# Classification-shaped tasks: routing, titles, intent — fast + cheap
+GEMINI_MODEL_LITE = os.getenv("GEMINI_MODEL_LITE", "gemini-2.5-flash-lite")
+# Groq Whisper Turbo: 216x realtime ASR
+GROQ_TRANSCRIPTION_MODEL = os.getenv("GROQ_TRANSCRIPTION_MODEL", "whisper-large-v3-turbo")
+
+# LangSmith auto-instruments LangChain/LangGraph when these are set in env;
+# loading them here just makes the wiring explicit.
+LANGSMITH_TRACING = os.getenv("LANGSMITH_TRACING", "false")
+LANGSMITH_API_KEY = os.getenv("LANGSMITH_API_KEY", "")
+LANGSMITH_PROJECT = os.getenv("LANGSMITH_PROJECT", "Autoclip")
 
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR / 'autoclip.db'}")
 

@@ -48,17 +48,57 @@ def extract_audio(video_path: str, output_path: str) -> str:
     return output_path
 
 
-def cut_video(input_path: str, output_path: str, start: float, end: float) -> str:
-    """Cut a segment from video with precise re-encoding."""
+def _nearest_keyframe(input_path: str, target: float) -> float:
+    """Find the nearest keyframe at or before `target` (seconds)."""
     cmd = [
-        "ffmpeg", "-y",
+        "ffprobe", "-v", "error",
+        "-select_streams", "v:0",
+        "-skip_frame", "nokey",
+        "-show_frames", "-show_entries", "frame=pkt_pts_time",
+        "-read_intervals", f"{max(0.0, target - 5):.3f}%{target + 5:.3f}",
+        "-of", "csv=p=0",
+        input_path,
+    ]
+    out = subprocess.run(cmd, capture_output=True, text=True)
+    candidates = [float(x) for x in out.stdout.splitlines() if x.strip()]
+    before = [t for t in candidates if t <= target]
+    return max(before) if before else target
+
+
+def cut_video(input_path: str, output_path: str, start: float, end: float) -> str:
+    """Cut a segment using ffmpeg stream-copy (-c copy) — ~20x faster than re-encoding.
+
+    Snaps `start` to the nearest preceding keyframe so the output is decodable
+    from frame 0. Falls back to re-encoding if the keyframe distance > 2s
+    (cut would drift too far from the requested start).
+    """
+    snapped = _nearest_keyframe(input_path, start)
+    drift = start - snapped
+
+    if drift <= 2.0:
+        cmd = [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-ss", str(snapped),
+            "-to", str(end),
+            "-i", input_path,
+            "-c", "copy",
+            "-avoid_negative_ts", "make_zero",
+            output_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True)
+        if result.returncode == 0:
+            return output_path
+
+    # Fallback: precise re-encode
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "error",
         "-i", input_path,
         "-ss", str(start),
         "-to", str(end),
         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
         "-c:a", "aac", "-b:a", "128k",
         "-avoid_negative_ts", "make_zero",
-        output_path
+        output_path,
     ]
     subprocess.run(cmd, capture_output=True, check=True)
     return output_path

@@ -1,34 +1,43 @@
-"""LangGraph pipeline state definitions with Pydantic structured output."""
+"""LangGraph pipeline state — chunk-parallel multimodal analysis."""
 from typing import TypedDict, Optional, Annotated, Literal
 from dataclasses import dataclass, field
 from pydantic import BaseModel, Field
 import operator
 
 
-# ─── Pydantic models for Gemini structured output ─────────────
+# ─── Pydantic structured-output models ────────────────────────
 
-class FrameAnalysis(BaseModel):
-    """Structured output from Gemini Vision for a single frame."""
-    energy: float = Field(ge=0.0, le=1.0, description="Visual dynamism 0-1")
-    emotion: Literal["neutral", "happy", "surprised", "angry", "sad", "excited"] = "neutral"
-    emotion_confidence: float = Field(ge=0.0, le=1.0, default=0.5)
-    description: str = Field(max_length=100, default="")
-    has_text_on_screen: bool = False
-    scene_type: Literal["talking_head", "presentation", "broll", "audience"] = "talking_head"
+class GeminiMoment(BaseModel):
+    """A single high-engagement moment, returned by Gemini per chunk."""
+    start: float = Field(description="Start time in seconds (relative to the full video)")
+    end: float = Field(description="End time in seconds (relative to the full video)")
+    description: str = Field(max_length=200, description="What happens in this moment")
+    transcript: str = Field(max_length=1000, description="Verbatim transcript of speech in this window")
+    style_tags: list[
+        Literal[
+            "hot_take", "story", "quote", "educational",
+            "controversial", "emotional", "funny", "story_beat",
+        ]
+    ] = Field(default_factory=list, description="What kind of moment this is — 1-3 tags")
+    visual_energy: float = Field(ge=0.0, le=1.0, description="Visual dynamism")
+    audio_energy: float = Field(ge=0.0, le=1.0, description="Audio dynamism (laughter, applause, vocal pitch swings)")
+    text_hook_strength: float = Field(ge=0.0, le=1.0, description="How strong this is as a verbal hook")
+    convergence_score: float = Field(
+        ge=0.0, le=1.0,
+        description="Overall multimodal engagement — only set high (>0.7) when 2+ modalities co-fire",
+    )
 
 
-class TranscriptSegment(BaseModel):
-    """Structured output from Gemini for a transcript segment."""
-    start_line: int
-    end_line: int
-    hook_type: Literal["hot_take", "story", "quote", "educational", "controversial", "emotional", "funny", "none"]
-    hook_strength: float = Field(ge=0.0, le=1.0)
-    topic: str = Field(max_length=50)
-    is_complete: bool = True
+class ChunkAnalysis(BaseModel):
+    """Gemini's structured response for one video chunk."""
+    moments: list[GeminiMoment] = Field(
+        default_factory=list,
+        description="At most 5 moments per chunk — quality over quantity",
+    )
 
 
 class EngagementScores(BaseModel):
-    """Structured output for clip engagement scoring."""
+    """Per-clip engagement scoring."""
     hook: int = Field(ge=1, le=10)
     emotion: int = Field(ge=1, le=10)
     shareability: int = Field(ge=1, le=10)
@@ -37,48 +46,11 @@ class EngagementScores(BaseModel):
     novelty: int = Field(ge=1, le=10)
 
 
-# ─── Signal dataclasses ──────────────────────────────────────
-
-@dataclass
-class VisualSignal:
-    """A visual event detected in a video frame."""
-    timestamp: float
-    energy: float
-    emotion: str
-    emotion_confidence: float
-    description: str
-    has_text_on_screen: bool = False
-    scene_type: str = "talking_head"
-
-
-@dataclass
-class AudioSignal:
-    """An audio event detected in the audio track."""
-    timestamp: float
-    energy: float
-    speech_pace: float
-    event_type: str  # speech, laughter, applause, silence, music
-    pitch_change: float
-    rms_db: float = 0.0
-    spectral_centroid: float = 0.0
-    tempo_local: float = 0.0
-
-
-@dataclass
-class TextSegment:
-    """A semantic text segment from transcript analysis."""
-    start: float
-    end: float
-    text: str
-    hook_type: str
-    hook_strength: float
-    topic: str
-    is_complete: bool
-
+# ─── Internal dataclasses ────────────────────────────────────
 
 @dataclass
 class Moment:
-    """A fused multimodal moment — the core output of analysis."""
+    """A multimodal moment — output of chunk analysis + global fusion."""
     start: float
     end: float
     visual_energy: float
@@ -89,6 +61,7 @@ class Moment:
     style_tags: list[str]
     description: str
     transcript: str
+    embedding: Optional[list[float]] = None  # populated in Phase 2.5
 
 
 @dataclass
@@ -118,36 +91,50 @@ class ProducedClip:
     style_tags: list[str]
 
 
-# ─── LangGraph State ─────────────────────────────────────────
-# Using Annotated with operator.add for list accumulation across nodes
+@dataclass
+class ChunkPlan:
+    """A planned chunk window — input to chunk_analyzer."""
+    index: int
+    start: float
+    end: float
+    video_path: str
+    transcript_window: dict
+
+
+# ─── LangGraph state ─────────────────────────────────────────
 
 def _replace(existing, new):
-    """Reducer that replaces the old value with the new value."""
+    """Reducer that overwrites the old value."""
     return new
 
 
 class PipelineState(TypedDict, total=False):
-    """LangGraph state that flows through the pipeline graph.
+    """State that flows through the pipeline graph.
 
-    Uses annotated reducers so parallel nodes can independently
-    append to list fields without overwriting each other.
+    Annotated reducers let parallel chunk workers append to `moment_map_raw`
+    without conflicts. The post-fan-in `global_fusion` node consolidates them
+    into the deduped `moment_map`.
     """
     # Video info
     video_id: str
     video_path: str
+    video_duration: Annotated[float, _replace]
     video_type: Annotated[str, _replace]
 
-    # Analysis outputs — use add reducer for parallel agent writes
-    visual_timeline: Annotated[list[VisualSignal], operator.add]
-    audio_timeline: Annotated[list[AudioSignal], operator.add]
-    text_segments: Annotated[list[TextSegment], operator.add]
-    scene_boundaries: Annotated[list[float], operator.add]
+    # Chunk planning
+    chunk_plans: Annotated[list[ChunkPlan], _replace]
 
-    # Fusion output
+    # Per-chunk outputs — fan-in via operator.add reducer
+    moment_map_raw: Annotated[list[Moment], operator.add]
+
+    # Global fusion output
     moment_map: Annotated[list[Moment], _replace]
 
-    # Transcript (shared across agents)
+    # Transcript (whole video)
     transcript_data: Annotated[dict, _replace]
+
+    # Scene cut timestamps (used by clip_selector for boundary snap)
+    scene_boundaries: Annotated[list[float], _replace]
 
     # User request
     clip_configs: list[ClipConfig]
