@@ -1,7 +1,7 @@
 # AutoClip AI — Development Commands
 # Run `make help` to see available targets
 
-.PHONY: help setup backend frontend dev test lint clean
+.PHONY: help setup backend frontend dev test lint clean up down logs rebuild ps shell-be shell-db
 
 # Default: show help
 help: ## Show this help
@@ -42,6 +42,36 @@ lint: ## Type-check and lint
 	cd backend && uv run python -m py_compile src/autoclip/pipeline/graph.py
 	cd backend && uv run python -m py_compile src/autoclip/pipeline/state.py
 	cd backend && uv run python -c "from autoclip.pipeline.graph import pipeline; print('Graph compiles OK')"
+
+# ─── Docker (one-command full stack) ────────────────────
+up: ## Build + start all services (postgres + redis + backend + frontend)
+	@if [ ! -f .env ]; then cp .env.example .env && echo ".env created — fill in GEMINI_API_KEY and GROQ_API_KEY then rerun"; exit 1; fi
+	docker compose up -d --build
+	@echo "→ http://localhost  (api: http://localhost/api/health)"
+
+down: ## Stop all services (keeps volumes)
+	docker compose down
+
+nuke: ## Stop services AND wipe volumes (postgres, redis, uploads, outputs)
+	docker compose down -v
+
+logs: ## Tail logs (all services)
+	docker compose logs -f --tail=200
+
+logs-be: ## Tail backend logs
+	docker compose logs -f --tail=200 backend
+
+ps: ## Show service status
+	docker compose ps
+
+rebuild: ## Rebuild backend image and restart it
+	docker compose build backend && docker compose up -d backend
+
+shell-be: ## Open a shell inside the backend container
+	docker compose exec backend bash
+
+shell-db: ## Open psql in the postgres container
+	docker compose exec postgres psql -U autoclip -d autoclip
 
 # ─── Cleanup ────────────────────────────────────────────
 clean: ## Remove build artifacts and caches

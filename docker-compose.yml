@@ -1,8 +1,7 @@
-version: "3.8"
-
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector/pgvector ships Postgres 16 + the `vector` extension preinstalled.
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_DB: autoclip
@@ -10,10 +9,23 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-autoclip_dev_password}
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres-init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U autoclip"]
+      test: ["CMD-SHELL", "pg_isready -U autoclip -d autoclip"]
       interval: 5s
       timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
       retries: 5
 
   backend:
@@ -22,21 +34,55 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://autoclip:${POSTGRES_PASSWORD:-autoclip_dev_password}@postgres:5432/autoclip
+      # ─── Storage / queues ────────────────────────────────
+      DATABASE_URL: postgresql+psycopg2://autoclip:${POSTGRES_PASSWORD:-autoclip_dev_password}@postgres:5432/autoclip
+      LANGGRAPH_PG_URL: postgresql://autoclip:${POSTGRES_PASSWORD:-autoclip_dev_password}@postgres:5432/autoclip
+      REDIS_URL: redis://redis:6379/0
+      USE_PGVECTOR: "1"
+
+      # ─── API keys (host .env) ────────────────────────────
       GEMINI_API_KEY: ${GEMINI_API_KEY}
-      ASSEMBLYAI_API_KEY: ${ASSEMBLYAI_API_KEY}
-      PEXELS_API_KEY: ${PEXELS_API_KEY}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+
+      # ─── Models ──────────────────────────────────────────
+      GEMINI_MODEL_MULTIMODAL: ${GEMINI_MODEL_MULTIMODAL:-gemini-2.5-flash}
+      GEMINI_MODEL_LITE: ${GEMINI_MODEL_LITE:-gemini-2.5-flash-lite}
+      GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-gemini-embedding-001}
+      GEMINI_EMBEDDING_DIM: ${GEMINI_EMBEDDING_DIM:-768}
+      GROQ_TRANSCRIPTION_MODEL: ${GROQ_TRANSCRIPTION_MODEL:-whisper-large-v3-turbo}
+
+      # ─── Pipeline tuning ─────────────────────────────────
+      CHUNK_LENGTH_SECONDS: ${CHUNK_LENGTH_SECONDS:-120}
+      CHUNK_OVERLAP_SECONDS: ${CHUNK_OVERLAP_SECONDS:-10}
+      CHUNK_MAX: ${CHUNK_MAX:-60}
+      SCENE_THRESHOLD: ${SCENE_THRESHOLD:-0.3}
+      TRANSCRIBE_SEGMENT_SECONDS: ${TRANSCRIBE_SEGMENT_SECONDS:-600}
+      TRANSCRIBE_SINGLE_SHOT_MAX: ${TRANSCRIBE_SINGLE_SHOT_MAX:-780}
+      TRANSCRIBE_PARALLELISM: ${TRANSCRIBE_PARALLELISM:-4}
+
+      # ─── Tracing ─────────────────────────────────────────
       LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
       LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
       LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-Autoclip}
       LANGSMITH_ENDPOINT: ${LANGSMITH_ENDPOINT:-https://api.smith.langchain.com}
+
+      # ─── App ─────────────────────────────────────────────
       CORS_ORIGINS: "*"
       UPLOAD_DIR: /app/uploads
       OUTPUT_DIR: /app/outputs
     volumes:
       - uploads:/app/uploads
       - outputs:/app/outputs
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health',timeout=3).status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   frontend:
     build: ./frontend
@@ -48,5 +94,6 @@ services:
 
 volumes:
   pgdata:
+  redisdata:
   uploads:
   outputs:

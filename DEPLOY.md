@@ -1,20 +1,45 @@
 # AutoClip AI — Deployment Guide
 
+## TL;DR (anywhere with Docker)
+
+```bash
+cp .env.example .env
+# fill in: GEMINI_API_KEY, GROQ_API_KEY (required) + LANGSMITH_API_KEY (optional)
+
+make up        # build + start: postgres+pgvector, redis, backend, frontend
+make logs      # tail everything
+make down      # stop
+make nuke      # stop + wipe volumes
+```
+
+Open `http://localhost`. That's the whole stack.
+
 ## Architecture
 
 ```
-GitHub push → GitHub Actions (test → SSH deploy)
-                    ↓
-EC2 t2.micro (Ubuntu 24.04, 20GB, free tier)
-  └─ Docker Compose
-       ├─ nginx (:80)    → serves React build + proxies /api
-       ├─ backend (:8000) → FastAPI + FFmpeg + uvicorn
-       └─ postgres (:5432) → persistent data volume
+                 ┌──────────────┐
+                 │ frontend :80  │  nginx + React build
+                 └──────┬───────┘
+                        │  /api/*  /api/chat/stream/* (SSE, no buffering)
+                 ┌──────▼───────────┐
+                 │ backend :8000     │  FastAPI + LangGraph + Groq + Gemini + FFmpeg
+                 └────┬────────┬────┘
+                      │        │
+              ┌───────▼─┐  ┌───▼─────────┐
+              │ postgres │  │ redis        │
+              │ +pgvector│  │ pub/sub +    │
+              │ (langgraph│  │ SSE backbone │
+              │ checkpts) │  └─────────────┘
+              └─────────┘
 ```
 
-**Cost: $0/month** (free tier for 12 months)
+All four services come up with `make up`. pgvector ships preinstalled
+in the `pgvector/pgvector:pg16` image — `infra/postgres-init.sql` runs
+`CREATE EXTENSION vector` on first boot.
 
 ---
+
+## Cold deploy on EC2 (from scratch)
 
 ## Step-by-Step Deployment
 
