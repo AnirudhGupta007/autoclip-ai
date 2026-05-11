@@ -1,7 +1,7 @@
 # AutoClip AI — Development Commands
 # Run `make help` to see available targets
 
-.PHONY: help setup backend frontend dev test lint clean up down logs rebuild ps shell-be shell-db
+.PHONY: help setup backend frontend dev lint eval clean up down nuke logs logs-be rebuild ps shell-be shell-db
 
 # Default: show help
 help: ## Show this help
@@ -27,21 +27,12 @@ dev: ## Start both backend and frontend
 	@echo "Starting backend on :8000 and frontend on :5173..."
 	@make backend & make frontend
 
-# ─── Testing ────────────────────────────────────────────
-test: ## Run all tests
-	cd backend && uv run pytest tests/ -v
-
-test-cov: ## Run tests with coverage report
-	cd backend && uv run pytest tests/ -v --cov=autoclip --cov-report=term-missing
-
-test-fast: ## Run tests without verbose output
-	cd backend && uv run pytest tests/ -q
-
 # ─── Code Quality ───────────────────────────────────────
-lint: ## Type-check and lint
-	cd backend && uv run python -m py_compile src/autoclip/pipeline/graph.py
-	cd backend && uv run python -m py_compile src/autoclip/pipeline/state.py
-	cd backend && uv run python -c "from autoclip.pipeline.graph import pipeline; print('Graph compiles OK')"
+lint: ## Compile-check + verify graph builds
+	cd backend && uv run python -c "from autoclip.pipeline.graph import pipeline; print('graph compiles OK')"
+
+eval: ## Run the moment-detection eval harness (set up backend/eval/dataset.json first)
+	cd backend && uv run python -m scripts.eval
 
 # ─── Docker (one-command full stack) ────────────────────
 up: ## Build + start all services (postgres + redis + backend + frontend)

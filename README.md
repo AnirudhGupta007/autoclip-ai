@@ -1,243 +1,241 @@
 # AutoClip AI
 
-**Conversational AI video clipping with multimodal LangGraph pipeline.**
+Conversational AI video clipping. Upload a long-form video, chat with it in
+natural language, and get short-form viral clips back — optimized for TikTok,
+Reels, and Shorts.
 
-Upload a long-form video, tell the AI what you want in plain English, and get short-form viral clips back — optimized for TikTok, Instagram Reels, and YouTube Shorts.
+Built around a chunk-parallel LangGraph pipeline that takes one Gemini 2.5
+Flash multimodal call per chunk instead of orchestrating hand-rolled visual /
+audio / text agents. Transcription runs on Groq Whisper Turbo (216× realtime),
+chunk analysis runs concurrently via LangGraph's Send API, results stream to
+the UI over SSE as they finish.
 
 ```
 You:  "Give me 4 funny TikTok clips under 30 seconds"
-AI:   Analyzing video with 3 parallel agents...
-      Found 4 clips:
-      [1] "The Database Was a Spreadsheet" — 28s — 9:16 — score 8.9/10
-      [2] "Nobody Told the CEO" — 24s — 9:16 — score 8.4/10
-      ...
+AI:   Analyzing 12 chunks in parallel...
+      [chunk 3 done]  [chunk 7 done]  [chunk 1 done] ...
+      24 moments found, fusing across chunk overlaps...
+      [4 clips ready]
+        1. "The Database Was a Spreadsheet" — 28s · 9:16 · 8.9/10
+        2. "Nobody Told the CEO"           — 24s · 9:16 · 8.4/10
+        3. ...
 
 You:  "Make clip 2 longer and give me clip 1 in square format"
-AI:   Done. Updated clip 2 to 42s. Exported clip 1 in 1:1.
+AI:   Reusing cached moment map (no re-analysis), regenerating 2 clips ...
 ```
 
-No complex UI. No manual editing timeline. Just chat.
+## Why it's interesting
 
----
-
-## How It Works
-
-### Multimodal Analysis Pipeline
-
-The system doesn't just read the transcript — it **sees**, **hears**, and **reads** the video simultaneously using three parallel agents:
-
-```
-Video Input
-    │
-    ▼
-┌────────────────┐
-│ Classifier     │ ← Gemini Vision: "what type of video is this?"
-│ (conditional)  │   → talking_head / presentation / podcast / mixed
-└───────┬────────┘
-        │
-        │
-        ▼ Send API — parallel fan-out
-┌──────────────────────────────────────────┐
-│      PARALLEL AGENTS (concurrent)         │
-│                                           │
-│  Visual Agent     Audio Agent    Text     │
-│  (Gemini Vision)  (librosa)     Agent    │
-│                                 (Gemini)  │
-│  Frames → energy  RMS, onset   Hooks,    │
-│  emotion, scenes  pace, events  stories   │
-└──────────┬────────────┬──────────┬───────┘
-           └────────────┼──────────┘
-                        ▼ fan-in
-              ┌──────────────────┐
-              │  TEMPORAL FUSION  │
-              │                   │
-              │  Aligns 3 timelines
-              │  finds moments where
-              │  2+ modalities spike
-              │  together            │
-              └─────────┬────────┘
-                        ▼
-              ┌──────────────────┐
-              │  CLIP SELECTOR   │ ← filtered by user preferences
-              │  + PRODUCTION    │   (style, length, count, format)
-              └──────────────────┘
-```
-
-### Why Multimodal Beats Text-Only
-
-A text-only system would miss:
-- The speaker slamming the table (visual energy)
-- The audience gasping (audio onset detection)
-- A dramatic pause before the punchline (audio silence → speech)
-- The speaker's facial expression changing (visual emotion)
-
-When visual energy, audio excitement, and a text hook all converge on the same timestamp — that's a high-confidence viral moment.
-
----
-
-## Tech Stack
-
-| Component | Technology |
+| What | How |
 |---|---|
-| **Pipeline Orchestration** | [LangGraph](https://github.com/langchain-ai/langgraph) — StateGraph with subgraphs, conditional routing, checkpointing |
-| **LLM / Vision** | Google Gemini 2.0 Flash — multimodal analysis (frames + text) |
-| **Transcription** | AssemblyAI — word-level timestamps + speaker diarization |
-| **Audio Analysis** | librosa — RMS, spectral centroid, onset detection, tempo, ZCR |
-| **Scene Detection** | PySceneDetect — content-based scene boundaries |
-| **Video Processing** | FFmpeg — cutting, captioning (ASS format), reframing, thumbnails |
-| **API** | FastAPI — async endpoints, SSE streaming |
-| **Frontend** | React + Vite + Tailwind — minimal chat interface |
-| **Database** | SQLAlchemy + SQLite |
-| **Packaging** | `uv` + `pyproject.toml` — modern Python packaging |
+| **True parallel time-chunked analysis** | LangGraph **Send API** fans out one `chunk_analyzer` worker per 2-min window. Annotated `operator.add` state reducer lets workers append moments concurrently without lock contention. |
+| **Let the model do the work** | One **Gemini 2.5 Flash** multimodal call per chunk (native video + audio + transcript → structured `Moment[]` via Pydantic). Replaces ~1000 lines of hand-rolled frame sampling, librosa peak-finding, and modality fusion. |
+| **216× realtime ASR** | **Groq `whisper-large-v3-turbo`**. 2 hr podcast transcribes in ~30s wall time via parallel 10-min Opus segments. |
+| **Resumable runs** | LangGraph **Postgres checkpointer** persists graph state per `thread_id`. Crash mid-run, resume from the last chunk. Multi-turn chat reuses the cached moment map (no re-analysis on "make clip 2 longer"). |
+| **Semantic moment search** | Embeddings on every moment via `gemini-embedding-001`, stored in a **pgvector** column. `POST /api/search` does cosine search — across one video or your whole library. Falls back to in-memory cosine on SQLite. |
+| **Live streaming UX** | Per-chunk `chunk_done` and `clip_ready` events on a Redis pub/sub channel; FastAPI SSE endpoint pipes them to the React frontend, so moments and skeleton clip cards fill in as the pipeline runs. |
+| **`-c copy` clip cuts** | ffmpeg stream-copy with keyframe-snap fallback. 20× faster than re-encoding when keyframe-aligned, which podcast/talking-head content almost always is. |
+| **Eval harness** | `scripts/eval.py` runs labeled videos through the pipeline and reports **precision@k** plus Gemini **prompt cache hit rate**. No vibes-driven AI. |
 
-### LangGraph Features Used
-
-- **StateGraph** with typed state + annotated reducers (`operator.add`)
-- **Send API** — parallel fan-out dispatch to visual/audio/text agents
-- **Subgraphs** — analysis and generation as compiled sub-pipelines
-- **Conditional edges** — video-type routing, analysis skip, early termination
-- **ToolNode** — FFmpeg operations as LangChain tools
-- **MemorySaver checkpointing** — state persists across chat turns
-- **Pydantic structured output** — type-safe LLM responses
-
----
-
-## Project Structure
+## Architecture
 
 ```
-autoclip-ai/
-├── architecture.md                    # Detailed system design doc
-├── backend/
-│   ├── pyproject.toml                 # uv-compatible dependencies
-│   ├── src/autoclip/
-│   │   ├── main.py                    # FastAPI entry point
-│   │   ├── config.py                  # Environment variables
-│   │   ├── database.py               # SQLAlchemy setup
-│   │   ├── models.py                 # Video + Clip ORM models
-│   │   ├── pipeline/
-│   │   │   ├── state.py              # Typed state + Pydantic models
-│   │   │   ├── graph.py              # LangGraph pipeline definition
-│   │   │   ├── chat.py               # Intent parsing + response gen
-│   │   │   ├── tools.py              # LangChain tool definitions
-│   │   │   └── agents/
-│   │   │       ├── classifier.py     # Video type classification
-│   │   │       ├── visual_agent.py   # Two-pass frame analysis
-│   │   │       ├── audio_agent.py    # 8-feature audio extraction
-│   │   │       ├── text_agent.py     # Hook detection + arc analysis
-│   │   │       ├── fusion.py         # Cross-modal convergence
-│   │   │       ├── clip_selector.py  # User-preference filtering
-│   │   │       └── production.py     # FFmpeg clip production
-│   │   ├── routers/                   # FastAPI endpoints
-│   │   ├── services/                  # Transcription, captions, etc.
-│   │   └── utils/                     # FFmpeg, subtitle helpers
-│   └── tests/
-│       ├── test_state.py
-│       ├── test_fusion.py
-│       ├── test_graph.py
-│       ├── test_chat.py
-│       └── test_e2e.py               # End-to-end pipeline tests
-└── frontend/
-    └── src/
-        ├── pages/Chat.jsx             # Chat interface
-        ├── components/                # UI components
-        └── services/api.js            # API client
+                ┌─────────────────────────────┐
+                │ FRONTEND  (nginx + React)    │
+                │  ▸ chat UI                   │
+                │  ▸ EventSource → /api/chat/  │
+                │    stream/{video_id} (SSE)   │
+                └──────────────┬──────────────┘
+                               │
+                ┌──────────────▼─────────────────┐
+                │ BACKEND  (FastAPI + LangGraph)  │
+                │                                  │
+                │   transcription_node            │
+                │     │  (Groq Whisper Turbo,     │
+                │     │   parallel 10-min Opus)   │
+                │     ▼                            │
+                │   scene_detection_node          │
+                │     │  (ffmpeg scene filter)    │
+                │     ▼                            │
+                │   chunk_planner                 │
+                │     │  (2-min windows,           │
+                │     │   10s overlap)             │
+                │     ▼  Send API fan-out         │
+                │   ┌─────────────────────────┐   │
+                │   │ chunk_analyzer × N      │   │ ──▶ moments + cache
+                │   │  (Gemini 2.5 Flash       │   │     hit rate telemetry
+                │   │   multimodal, structured │   │
+                │   │   output → Moment[])     │   │
+                │   └────────────┬────────────┘   │
+                │                ▼ fan-in          │
+                │   global_fusion                 │
+                │     │ (temporal + cosine        │
+                │     │  embedding dedupe)        │
+                │     ▼                            │
+                │   ── pipeline_events.publish ── │ ──▶ Redis pub/sub
+                │                                  │      │
+                │   clip_selector → production   │     SSE
+                │   (-c copy, captions, reframe) │      ▼
+                └────────┬───────────┬───────────┘   frontend
+                         │           │
+                ┌────────▼──┐   ┌────▼────────────┐
+                │ POSTGRES   │   │ REDIS           │
+                │ + pgvector │   │ pub/sub + cache │
+                │ ▸ langgraph│   └─────────────────┘
+                │   checkpts │
+                │ ▸ moments  │
+                │   (embed)  │
+                └────────────┘
 ```
 
----
+## Quick start
 
-## Getting Started
-
-### Prerequisites
-
-- Python 3.11+
-- Node.js 18+
-- FFmpeg installed and on PATH
-- [uv](https://github.com/astral-sh/uv) (recommended) or pip
-
-### API Keys
-
-You'll need:
-- [Google Gemini API key](https://ai.google.dev/)
-- [AssemblyAI API key](https://www.assemblyai.com/)
-
-### Quick Start (with Make)
+Prereqs: Docker + Docker Compose. That's it. A Gemini key and a Groq key.
 
 ```bash
 git clone https://github.com/AnirudhGupta007/autoclip-ai.git
 cd autoclip-ai
-make setup                     # Install all dependencies + create .env
-# → Edit .env with your API keys
-make dev                       # Start backend (:8000) + frontend (:5173)
+cp .env.example .env
+# edit .env: paste in GEMINI_API_KEY and GROQ_API_KEY
+make up
 ```
 
-### Manual Setup
+Browse to **http://localhost**. First build is ~3 min (pulls pgvector + redis
+images, installs Python deps). Subsequent boots are seconds.
+
+### Make targets
+
+```
+make up         # build + start all 4 services (postgres+pgvector, redis, backend, frontend)
+make down       # stop (volumes survive)
+make nuke       # stop + wipe everything
+make logs       # tail all services
+make logs-be    # tail backend only
+make rebuild    # rebuild backend image after code changes
+make shell-be   # bash into backend container
+make shell-db   # psql into postgres
+make eval       # run the precision@k harness (needs backend/eval/dataset.json)
+```
+
+## Project layout
+
+```
+autoclip-ai/
+├─ backend/
+│  ├─ src/autoclip/
+│  │  ├─ main.py                    # FastAPI app + /api/health + /api/telemetry
+│  │  ├─ config.py                  # env-driven model + tuning knobs
+│  │  ├─ database.py / models.py    # SQLAlchemy + pgvector column (hybrid sqlite/pg)
+│  │  ├─ pipeline/
+│  │  │  ├─ graph.py                # the LangGraph wiring (Send API, subgraphs, checkpointer)
+│  │  │  ├─ state.py                # TypedDict state + Pydantic structured-output models
+│  │  │  ├─ telemetry.py            # Gemini cache hit rate counters
+│  │  │  └─ agents/
+│  │  │     ├─ chunk_planner.py     # splits video into 2-min windows
+│  │  │     ├─ chunk_analyzer.py    # one Gemini 2.5 Flash call per chunk
+│  │  │     ├─ global_fusion.py     # temporal + embedding dedupe
+│  │  │     ├─ clip_selector.py     # picks moments per user request, scores them
+│  │  │     └─ production.py        # ffmpeg cut/caption/reframe/thumbnail
+│  │  ├─ services/
+│  │  │  ├─ transcription.py        # Groq Whisper + audio chunking for long videos
+│  │  │  ├─ scene_detector.py       # ffmpeg scene filter (replaces PySceneDetect)
+│  │  │  ├─ video_processor.py      # face detection, -c copy cuts, reframing
+│  │  │  ├─ embeddings.py           # gemini-embedding-001 + cosine helpers
+│  │  │  ├─ events.py               # Redis pub/sub publishers + SSE subscriber
+│  │  │  └─ moment_store.py         # persist moments to Postgres for /api/search
+│  │  └─ routers/
+│  │     ├─ chat.py                 # POST /api/chat/message  + GET /api/chat/stream/{id}
+│  │     ├─ videos.py · clips.py    # CRUD
+│  │     └─ search.py               # POST /api/search (pgvector cosine)
+│  ├─ scripts/eval.py               # precision@k harness
+│  └─ eval/dataset.example.json
+├─ frontend/                        # Vite + React + Tailwind
+│  └─ src/
+│     ├─ pages/Chat.jsx             # main UI, opens EventSource on send
+│     ├─ services/api.js            # axios + openPipelineStream(EventSource)
+│     └─ components/                # HeroSection, UploadZone, ClipCard, ProcessingIndicator, ...
+├─ infra/postgres-init.sql          # CREATE EXTENSION vector on first boot
+├─ docker-compose.yml
+└─ Makefile
+```
+
+## Pipeline walkthrough
+
+```python
+# Single Gemini call per chunk — structured output, no parsing yak-shaving
+class GeminiMoment(BaseModel):
+    start: float
+    end: float
+    description: str
+    transcript: str
+    style_tags: list[Literal["hot_take", "story", "quote", ...]]
+    visual_energy: float
+    audio_energy: float
+    text_hook_strength: float
+    convergence_score: float    # only > 0.7 when 2+ modalities co-fire
+
+# In graph.py: parallel fan-out, fan-in, and a Postgres checkpoint
+def route_to_chunks(state):
+    return [Send("chunk_analyzer", {"chunk_plans": [p], "video_id": state["video_id"]})
+            for p in state["chunk_plans"]]
+```
+
+For a 1-hr podcast, this fans out ~30 concurrent chunk workers; each one runs
+its own Gemini call, publishes its moments to Redis as they land, and writes
+into the shared `moment_map_raw` list via `operator.add`. `global_fusion`
+then dedupes moments in the 10s overlap regions (timestamp + cosine), embeds
+each moment, and persists to Postgres.
+
+## Configuration (env vars)
+
+| Var | Default | What |
+|---|---|---|
+| `GEMINI_API_KEY` | — | Required. |
+| `GROQ_API_KEY` | — | Required (transcription). |
+| `GEMINI_MODEL_MULTIMODAL` | `gemini-2.5-flash` | Per-chunk multimodal analyzer. |
+| `GEMINI_MODEL_LITE` | `gemini-2.5-flash-lite` | Intent parsing, titles, scoring. |
+| `GEMINI_EMBEDDING_MODEL` | `gemini-embedding-001` | Moment embeddings. |
+| `GROQ_TRANSCRIPTION_MODEL` | `whisper-large-v3-turbo` | 216× realtime ASR. |
+| `CHUNK_LENGTH_SECONDS` | `120` | Analysis chunk size. |
+| `CHUNK_OVERLAP_SECONDS` | `10` | Overlap (helps global_fusion catch boundary moments). |
+| `CHUNK_MAX` | `60` | Safety bound on chunk count. |
+| `TRANSCRIBE_SEGMENT_SECONDS` | `600` | Audio split size for long-form (Groq 25 MB cap). |
+| `TRANSCRIBE_SINGLE_SHOT_MAX` | `780` | Skip splitting when video ≤ this. |
+| `TRANSCRIBE_PARALLELISM` | `4` | Concurrent Groq calls during audio chunking. |
+| `LANGGRAPH_PG_URL` | unset | If set, swaps `MemorySaver` for `PostgresSaver` (resumable runs). |
+| `REDIS_URL` | unset | If set, enables SSE live updates; otherwise pub/sub is a no-op. |
+| `USE_PGVECTOR` | `1` on Postgres | Use `embedding <=> query` for search; falls back to in-memory cosine on SQLite. |
+| `LANGSMITH_TRACING`, `LANGSMITH_API_KEY` | unset | LangSmith auto-instrumentation. |
+
+The compose file wires all of these for you; just fill in the keys.
+
+## Observability
+
+- **`GET /api/telemetry`** — rolling Gemini call count + prompt cache hit rate per model
+- **`backend/scripts/eval.py`** — precision@k vs labeled `eval/dataset.json`
+- **LangSmith** — set `LANGSMITH_API_KEY` and every node + Gemini call appears as a span
+- **`make logs-be`** — backend logs include per-chunk timing and cache hit rate per call
+
+## Cold deploy to a fresh EC2
 
 ```bash
-# Backend
-cd backend
-cp ../.env.example .env        # Add your API keys
-uv sync                        # or: pip install -e ".[dev]"
-uv run uvicorn autoclip.main:app --reload --port 8000
+# On the box
+sudo apt update && sudo apt install -y docker.io docker-compose-v2 git
+sudo usermod -aG docker ubuntu && exec sudo -u ubuntu bash    # re-login for group
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile \
+  && sudo mkswap /swapfile && sudo swapon /swapfile \
+  && echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 
-# Frontend (new terminal)
-cd frontend
-npm install
-npm run dev
+git clone https://github.com/AnirudhGupta007/autoclip-ai.git
+cd autoclip-ai
+cp .env.example .env       # paste in your keys
+make up                    # ~3 min on a t3.small / t2.micro
 ```
 
-Open `http://localhost:5173` — upload a video and start chatting.
-
-### Run Tests
-
-```bash
-make test                      # or: cd backend && uv run pytest tests/ -v
-```
-
-### All Make Targets
-
-```
-make setup       First-time setup (backend + frontend dependencies)
-make dev         Start both backend and frontend
-make test        Run all tests
-make test-cov    Run tests with coverage report
-make lint        Type-check and verify graph compiles
-make clean       Remove build artifacts and caches
-```
-
----
-
-## Pipeline Deep Dive
-
-See **[architecture.md](architecture.md)** for the full system design, including:
-
-- Main graph with conditional entry (analysis vs regeneration)
-- Analysis subgraph with fan-out/fan-in agent pattern
-- Two-pass visual sampling strategy
-- Audio feature extraction (8 librosa features)
-- Text hook detection with regex pre-scan + LLM + narrative arc detection
-- Temporal fusion convergence algorithm
-- State schema with annotated reducers
-
----
-
-## User Controls
-
-Everything is controlled through natural language:
-
-| What You Say | What Happens |
-|---|---|
-| "4 funny TikToks under 30s" | 4 clips, funny style, 9:16, ≤30s each |
-| "3 educational clips for YouTube" | 3 clips, educational, 16:9 |
-| "make clip 2 longer" | Extends clip 2 by ~15s |
-| "change clip 1 to square" | Re-exports clip 1 in 1:1 |
-| "find me something dramatic" | Filters moment map for dramatic content |
-| "what moments did you find?" | Shows top moments with convergence scores |
-| "download all" | Download links for all clips |
-
-The video is analyzed **once**. Follow-up requests reuse the cached moment map — fast regeneration without re-analyzing.
-
----
+CI/CD: `.github/workflows/deploy.yml` runs an AST sanity check on every push to
+`master`, then SSHs to EC2 and runs `git pull && docker compose up -d --build`.
+Add `EC2_HOST` and `EC2_SSH_KEY` repo secrets to enable it.
 
 ## License
 
-MIT
+MIT. See `LICENSE`.
