@@ -101,10 +101,16 @@ async def chat_message(msg: ChatMessage):
     clips = _extract_clips_from_run(result)
     response_text = _final_text(result)
 
+    moment_count = None
+    if video_id:
+        from autoclip.agent.tools import get_video_status
+        status = get_video_status.invoke({"video_id": video_id})
+        moment_count = status.get("moment_count") if status.get("exists") else None
+
     return ChatResponse(
         response=response_text,
         clips=clips or None,
-        moment_count=None,
+        moment_count=moment_count,
     )
 
 

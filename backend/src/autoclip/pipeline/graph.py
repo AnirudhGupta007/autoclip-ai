@@ -162,18 +162,38 @@ def build_pipeline_graph() -> StateGraph:
 # ═══════════════════════════════════════════════════════════════
 
 def _build_checkpointer():
-    """Use PostgresSaver when LANGGRAPH_PG_URL is set, else MemorySaver."""
+    """Use PostgresSaver when LANGGRAPH_PG_URL is set, else MemorySaver.
+
+    `PostgresSaver.from_conn_string()` yields from a `with Connection.connect(...)
+    as conn:` block internally — manually `__enter__()`-ing it (an earlier
+    version of this function did) leaves a single raw connection that gets
+    closed out from under the app (confirmed live: "the connection is closed"
+    on every real request). The robust, app-lifetime-safe pattern is to hand
+    PostgresSaver a `ConnectionPool` instead of a single Connection — it
+    accepts either (see `PostgresSaver.__init__`), and the pool reconnects
+    on its own rather than relying on one fragile long-lived connection.
+    """
     pg_url = os.getenv("LANGGRAPH_PG_URL", "")
     if not pg_url:
         return MemorySaver()
     try:
+        from psycopg.rows import dict_row
+        from psycopg_pool import ConnectionPool
         from langgraph.checkpoint.postgres import PostgresSaver
-        saver = PostgresSaver.from_conn_string(pg_url)
+
+        pool = ConnectionPool(
+            conninfo=pg_url,
+            min_size=1,
+            max_size=10,
+            kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row},
+            open=True,
+        )
+        saver = PostgresSaver(pool)
         try:
             saver.setup()
         except Exception as e:
             logger.warning("PostgresSaver.setup() raised (often safe to ignore): %s", e)
-        logger.info("LangGraph using PostgresSaver")
+        logger.info("LangGraph using PostgresSaver (pooled)")
         return saver
     except Exception as e:
         logger.warning("PostgresSaver unavailable (%s) — falling back to MemorySaver", e)

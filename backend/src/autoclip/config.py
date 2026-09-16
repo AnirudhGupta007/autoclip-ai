@@ -31,8 +31,8 @@ OPENROUTER_MODEL_VISION = os.getenv("OPENROUTER_MODEL_VISION", "google/gemini-2.
 # see services/transcription.py for the audio-content-part approach).
 OPENROUTER_MODEL_AUDIO = os.getenv("OPENROUTER_MODEL_AUDIO", "google/gemini-2.5-flash")
 
-# Local embedding model (sentence-transformers) — see services/embeddings.py.
-EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
+# Local embedding model (fastembed (ONNX, no torch)) — see services/embeddings.py.
+EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-small-en-v1.5")
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "384"))
 
 # LangSmith auto-instruments LangChain/LangGraph when these are set in env;

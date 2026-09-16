@@ -17,7 +17,7 @@ architecture was already good and is reused as a tool, not rebuilt.
 subagents, clip scoring, titles, chat replies, frame-sampled vision
 analysis, and audio transcription. The one exception is embeddings:
 OpenRouter has no embeddings endpoint at all, so moment embeddings run on a
-local sentence-transformers model instead (see [Provider notes](#provider-notes-what-moved-to-openrouter-and-what-didnt)).
+local fastembed (ONNX, no torch) model instead (see [Provider notes](#provider-notes-what-moved-to-openrouter-and-what-didnt)).
 
 ```
 You:  "Give me 4 funny TikTok clips under 30 seconds"
@@ -54,7 +54,7 @@ agent/orchestrator.py   deepagents.create_deep_agent()
      │    chunk_analyzer × N (OpenRouter vision, frame-sampled — see below)
      │         │  fan-in
      │         ▼
-     │    global_fusion (dedupe, local sentence-transformers embeddings)
+     │    global_fusion (dedupe, local fastembed (ONNX, no torch) embeddings)
      │         │
      │         ▼
      │    rag/index.py — moments indexed into LlamaIndex (pgvector-backed)
@@ -82,27 +82,38 @@ agent/orchestrator.py   deepagents.create_deep_agent()
 | Clip scoring, titles, chat replies | OpenRouter (`OPENROUTER_MODEL_LITE`) | Cheap/fast structured-output calls. |
 | Chunk vision analysis | OpenRouter (`OPENROUTER_MODEL_VISION`) | OpenRouter has no native video-file-upload API, so `chunk_analyzer.py` samples ~1 frame every 2.5s via ffmpeg, base64-encodes them as JPEGs, and sends them as multiple `image_url` parts in one chat completion alongside the transcript window. This leans more on the transcript signal than true video understanding would — a known precision tradeoff. |
 | Audio transcription | OpenRouter (`OPENROUTER_MODEL_AUDIO`) | OpenRouter has no dedicated ASR endpoint, so `services/transcription.py` sends each ~10-min audio segment as an `input_audio` chat-completion content part and asks for a phrase-level transcript with timestamps. Per-word timestamps are then *approximated* by evenly distributing each phrase's words across its estimated window — this is not frame-accurate forced alignment the way a dedicated ASR model's word timestamps are, but it's good enough for the scene/word-boundary snapping `clip_selector.py` does. |
-| Moment embeddings | **Local** — `sentence-transformers` (`all-MiniLM-L6-v2`, 384-dim), no API key, no network call | OpenRouter has no embeddings endpoint at all — this is the one call site that genuinely cannot go through it. |
+| Moment embeddings | **Local** — `fastembed (ONNX, no torch)` (`BAAI/bge-small-en-v1.5`, 384-dim), no API key, no network call | OpenRouter has no embeddings endpoint at all — this is the one call site that genuinely cannot go through it. |
 
 ## Cost & latency
 
-**These numbers were not measured live in this session** — the sandbox this
-rewrite was built in has no general internet access (only GitHub was
-reachable), so `pip install` and live OpenRouter/vision/audio calls
-couldn't run here. Rather than invent numbers, run:
+This was live-tested end to end (Docker build, real OpenRouter calls, a
+real chat turn producing real moment detection) — see **[BENCHMARKS.md](BENCHMARKS.md)**
+for the full writeup, including 8 real bugs that only surfaced by actually
+running it (none caught by static review). Short version: a full chat
+turn against a short (~24s) test video — orchestrator reasoning, vision
+analysis, RAG retrieval, scoring — took **18–56s wall time** and **≈$0.03–0.07
+per turn**, depending on how many tool calls the agent makes. That's a
+small sample from synthetic test clips, not a rigorous benchmark — run it
+yourself against a real video for numbers that mean something for your use
+case:
 
 ```bash
 make up
 python backend/scripts/benchmark.py --video path/to/sample.mp4
 ```
 
-once you have real API access. It uploads a sample video, drives a chat
-turn through `/api/chat/message`, times each phase (upload → analysis →
-clip production), reads `/api/telemetry` for per-model token counts, and
-appends a real, timestamped entry to `BENCHMARKS.md` — so numbers here stay
-honest instead of stale copy-paste.
+It uploads a video, drives a chat turn through `/api/chat/message`, times
+each phase (upload → analysis → clip production), reads `/api/telemetry`
+for per-model token counts, and appends a real, timestamped entry to
+`BENCHMARKS.md`.
 
-**Cost drivers, for back-of-envelope estimates before you have real numbers:**
+**One open item from live testing:** the orchestrator was caught once
+narrating a plausible-sounding clip result that didn't match what was
+actually in the database (a tool-call error got summarized instead of
+reported honestly). The system prompt now explicitly forbids this, but it
+wasn't re-verified live — see BENCHMARKS.md's "Known gap" section.
+
+**Cost drivers, for back-of-envelope estimates on longer videos:**
 
 - **Vision (chunk analysis):** 1 OpenRouter vision call per chunk × chunks
   (a 2-min chunk size means ~30 chunks/hour of video), each with ~24 sampled
@@ -121,7 +132,11 @@ honest instead of stale copy-paste.
 
 ## Quick start
 
-Prereqs: Docker + Docker Compose, and an [OpenRouter API key](https://openrouter.ai/keys).
+Prereqs: Docker + Docker Compose, and an [OpenRouter API key](https://openrouter.ai/keys)
+**with real balance on it** — every LLM call in this app (orchestrator,
+vision, audio, scoring) goes through that one key, so check
+https://openrouter.ai/settings/credits before relying on it for anything;
+a 402 mid-request looks like a random failure otherwise.
 
 ```bash
 git clone https://github.com/AnirudhGupta007/autoclip-ai.git
@@ -132,7 +147,7 @@ make up
 ```
 
 Browse to **http://localhost**. First build pulls pgvector + redis images
-and installs Python deps (including `sentence-transformers`, which also
+and installs Python deps (including `fastembed (ONNX, no torch)`, which also
 pulls its embedding model weights on first run — expect a few minutes).
 
 ### Make targets
@@ -181,7 +196,7 @@ autoclip-ai/
 │  │  │  ├─ transcription.py        # OpenRouter audio-part transcription + chunking
 │  │  │  ├─ scene_detector.py       # ffmpeg scene filter
 │  │  │  ├─ video_processor.py      # face detection, -c copy cuts, reframing
-│  │  │  ├─ embeddings.py           # local sentence-transformers + cosine helpers
+│  │  │  ├─ embeddings.py           # local fastembed (ONNX, no torch) + cosine helpers
 │  │  │  ├─ clip_reprocess.py       # shared re-cut/re-caption logic (HTTP route + agent tool)
 │  │  │  ├─ events.py               # Redis pub/sub publishers + SSE subscriber
 │  │  │  └─ moment_store.py         # persist moments to Postgres + RAG index
@@ -207,7 +222,7 @@ autoclip-ai/
 | `OPENROUTER_MODEL_LITE` | `openai/gpt-4o-mini` | Clip scoring, titles, chat replies. |
 | `OPENROUTER_MODEL_VISION` | `google/gemini-2.5-flash` | Frame-sampled chunk analysis. |
 | `OPENROUTER_MODEL_AUDIO` | `google/gemini-2.5-flash` | Audio-part transcription. |
-| `EMBEDDING_MODEL_NAME` | `all-MiniLM-L6-v2` | Local embedding model (no API key). |
+| `EMBEDDING_MODEL_NAME` | `BAAI/bge-small-en-v1.5` | Local embedding model (no API key). |
 | `EMBEDDING_DIM` | `384` | Must match the embedding model's output dim (pgvector column size). |
 | `CHUNK_LENGTH_SECONDS` | `120` | Analysis chunk size. |
 | `CHUNK_OVERLAP_SECONDS` | `10` | Overlap (helps global_fusion catch boundary moments). |

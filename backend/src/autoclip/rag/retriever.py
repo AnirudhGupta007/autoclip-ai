@@ -1,7 +1,7 @@
 """RAG retrieval over the moment index — backs both clip_selector and /api/search.
 
-No cross-encoder reranker (keeps deps light — no sentence-transformers
-cross-encoder / torch beyond what embeddings already need): vector search +
+No cross-encoder reranker (keeps deps light — no extra cross-encoder
+model beyond the embedding model already loaded): vector search +
 metadata filtering gets ~k candidates, and the caller's own LLM step
 (clip_selector's critique/title call, or a human reading /api/search
 results) does the final semantic judgment on that small candidate set.

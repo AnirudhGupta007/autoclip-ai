@@ -7,13 +7,10 @@ Subagents scope the tool surface so the model doesn't have to reason about
 every tool at every turn — retrieval, critique/scoring, and production are
 separated the same way the architecture diagram in the plan describes.
 
-NOTE: this was written without the ability to `pip install deepagents` in
-this sandbox (no general internet access — see README), so the exact
-kwarg names of `create_deep_agent` should be checked against the installed
-version's signature the first time this runs in a networked environment.
-This is written against the library's documented public interface:
-`create_deep_agent(model=..., tools=[...], subagents=[...], checkpointer=...,
-instructions=...)`.
+Verified against the installed `deepagents` package (0.7.x) — the top-level
+call and each subagent dict take `system_prompt`, not `instructions`/`prompt`
+(the library's docs use those names in prose, but the actual TypedDict/kwarg
+is `system_prompt`).
 """
 from __future__ import annotations
 import logging
@@ -57,6 +54,20 @@ or moment counts. Workflow:
      durations, scores — in plain text. The clips themselves are returned
      to the frontend separately from your text reply.
 
+HARD RULE: you may NEVER state that a clip was created, name a clip title,
+or give a clip score unless select_and_produce_clips (or modify_clip)
+appears as an actual tool call in THIS turn and you are reading its real
+return value. Finding moments via search_moments is not the same as
+producing clips — it only tells you candidates exist. If the user asked
+for clips, you MUST call select_and_produce_clips yourself before replying;
+do not stop after search_moments and describe what a clip would look like.
+Ground your reply in the ACTUAL return value of select_and_produce_clips —
+it returns a list, which may be empty. If it returns an empty list, say so
+plainly (e.g. "I analyzed the video but didn't find any moments strong
+enough to clip — try a different video or a broader request") instead of
+claiming clips were created. Never describe clip count, titles, or scores
+you did not read from that list.
+
 Be concise. Don't ask the user to repeat information you can get from tools.
 """
 
@@ -65,7 +76,7 @@ def _retrieval_subagent() -> dict:
     return {
         "name": "retrieval-agent",
         "description": "Finds moments in an analyzed video matching a freeform description.",
-        "prompt": (
+        "system_prompt": (
             "You find moments in a video's moment map that match what the user "
             "described. Call search_moments with a well-formed semantic query "
             "derived from their request. If the first search returns few/weak "
@@ -80,7 +91,7 @@ def _critic_subagent() -> dict:
     return {
         "name": "critic-agent",
         "description": "Reviews produced clips and can request a re-pick when quality is weak.",
-        "prompt": (
+        "system_prompt": (
             "You review clips returned by select_and_produce_clips. Each clip "
             "carries an overall_score (1-10, via EngagementScores). If a batch's "
             "average overall_score is below 5, tell the orchestrator which "
@@ -94,7 +105,7 @@ def _production_subagent() -> dict:
     return {
         "name": "production-agent",
         "description": "Owns the deterministic clip-production and modification tool calls.",
-        "prompt": (
+        "system_prompt": (
             "You execute select_and_produce_clips and modify_clip exactly as "
             "instructed — these are deterministic ffmpeg operations, not places "
             "to improvise parameters."
@@ -105,11 +116,11 @@ def _production_subagent() -> dict:
 
 def build_orchestrator():
     return create_deep_agent(
-        model=get_chat_model(),
+        model=get_chat_model(max_tokens=8192),
         tools=ALL_TOOLS,
         subagents=[_retrieval_subagent(), _critic_subagent(), _production_subagent()],
         checkpointer=checkpointer,
-        instructions=SYSTEM_PROMPT,
+        system_prompt=SYSTEM_PROMPT,
     )
 
 

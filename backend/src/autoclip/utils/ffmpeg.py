@@ -60,7 +60,19 @@ def _nearest_keyframe(input_path: str, target: float) -> float:
         input_path,
     ]
     out = subprocess.run(cmd, capture_output=True, text=True)
-    candidates = [float(x) for x in out.stdout.splitlines() if x.strip()]
+    # ffprobe sometimes emits non-numeric noise lines even at -v error (e.g.
+    # "H.264 User Data Unregistered SEI message" for certain streams) —
+    # live-tested and confirmed this crashes clip production if every line
+    # is assumed to be a parseable timestamp. Skip lines that aren't floats.
+    candidates = []
+    for line in out.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            candidates.append(float(line))
+        except ValueError:
+            continue
     before = [t for t in candidates if t <= target]
     return max(before) if before else target
 

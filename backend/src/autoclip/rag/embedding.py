@@ -1,4 +1,4 @@
-"""LlamaIndex embedding wrapper around the local sentence-transformers model.
+"""LlamaIndex embedding wrapper around the local fastembed (ONNX, no torch) model.
 
 Reuses `services/embeddings.embed_text` verbatim (single source of truth
 for the embedding model) rather than re-implementing embedding logic here —

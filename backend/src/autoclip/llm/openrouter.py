@@ -4,7 +4,7 @@ Every LLM call in autoclip (deep-agent orchestration, subagents, clip
 scoring, titles, chat replies, vision-based chunk analysis, audio
 transcription) goes through OpenRouter's OpenAI-compatible chat-completions
 API. The only exception is embeddings — OpenRouter has no embeddings
-endpoint at all, so `services/embeddings.py` uses a local sentence-transformers
+endpoint at all, so `services/embeddings.py` uses a local fastembed (ONNX, no torch)
 model instead (see that file's docstring).
 
 OpenRouter has no native video-file-upload or dedicated-ASR endpoint, so
@@ -32,7 +32,9 @@ logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=16)
-def get_chat_model(model: str | None = None, *, lite: bool = False, temperature: float = 0.4) -> ChatOpenAI:
+def get_chat_model(
+    model: str | None = None, *, lite: bool = False, temperature: float = 0.4, max_tokens: int = 4096,
+) -> ChatOpenAI:
     """Return a cached ChatOpenAI instance pointed at OpenRouter.
 
     `model` overrides the default entirely (used for the vision/audio call
@@ -40,6 +42,13 @@ def get_chat_model(model: str | None = None, *, lite: bool = False, temperature:
     explicitly). `lite=True` selects OPENROUTER_MODEL_LITE for
     cheap/fast classification-shaped tasks (scoring, titles, chat replies)
     when `model` isn't given.
+
+    `max_tokens` defaults to a real cap (4096) rather than leaving it unset:
+    live-tested and confirmed some models (e.g. Claude via OpenRouter) default
+    to max_tokens=64000 when the client doesn't specify one, which both
+    costs far more than these structured/short responses need and can
+    outright fail on a low-credit account ("requested up to 64000 tokens,
+    but can only afford X").
     """
     if not OPENROUTER_API_KEY:
         logger.warning("OPENROUTER_API_KEY is not set — LLM calls will fail")
@@ -49,6 +58,7 @@ def get_chat_model(model: str | None = None, *, lite: bool = False, temperature:
         api_key=OPENROUTER_API_KEY or "missing",
         model=resolved,
         temperature=temperature,
+        max_tokens=max_tokens,
         default_headers={
             "HTTP-Referer": "https://github.com/AnirudhGupta007/autoclip-ai",
             "X-Title": "AutoClip AI",
