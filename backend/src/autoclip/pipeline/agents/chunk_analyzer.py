@@ -1,23 +1,27 @@
-"""Chunk analyzer — single Gemini 2.5 Flash multimodal call per video chunk.
+"""Chunk analyzer — frame-sampled vision call per video chunk, via OpenRouter.
 
-Replaces the v1 visual_agent + audio_agent + text_agent + fusion stack
-(~975 lines of hand-rolled signal extraction) with one native call: Gemini
-takes the chunk's raw video+audio + the chunk's transcript window, and
-returns structured `GeminiMoment[]` directly.
+OpenRouter has no native video-file-upload API (unlike Google's Gemini File
+API), so instead of uploading the raw chunk video we sample ~1 frame every
+FRAME_SAMPLE_INTERVAL_S seconds, base64-encode each as JPEG, and send them
+as a sequence of `image_url` (data URI) content parts in one chat-completion
+call to a vision-capable model (OPENROUTER_MODEL_VISION), alongside the
+chunk's transcript window. This approximates native video understanding —
+visual_energy/audio_energy judgments rely more heavily on the transcript
+signal than a true video model would, which is a known precision tradeoff
+(see README).
 
-This is the "let the model do the hard work" inversion from V2_PLAN §2.
+This still runs one call per chunk under LangGraph's Send-API fan-out —
+the parallel time-chunked architecture is unchanged, only the transport
+for that per-chunk call moved from Gemini's File API to OpenRouter.
 """
-import os
-import time
+from __future__ import annotations
+import base64
 import logging
 import subprocess
 from pathlib import Path
 from typing import Optional
 
-from google import genai
-from google.genai import types as genai_types
-
-from autoclip.config import GEMINI_API_KEY, GEMINI_MODEL_MULTIMODAL
+from autoclip.llm.openrouter import get_vision_model
 from autoclip.pipeline.state import (
     PipelineState, Moment, ChunkAnalysis, ChunkPlan,
 )
@@ -25,17 +29,23 @@ from autoclip.pipeline import telemetry
 
 logger = logging.getLogger(__name__)
 
+FRAME_SAMPLE_INTERVAL_S = 2.5
+MAX_SAMPLED_FRAMES = 24  # cap payload size on long chunks
 
-# ─── System prompt (cacheable across chunks) ─────────────────
 
-SYSTEM_PROMPT = """You are a video clip-curation expert. Given a short video chunk \
-(2 minutes max) and its transcript, identify up to 5 moments inside the chunk that \
-would make great viral short-form clips.
+# ─── System prompt (identical curation rules to the previous version) ───
+
+SYSTEM_PROMPT = """You are a video clip-curation expert. Given a sequence of \
+sampled frames from a short video chunk (2 minutes max, frames spaced a few \
+seconds apart) and its transcript, identify up to 5 moments inside the chunk \
+that would make great viral short-form clips.
 
 A great moment has at least one of:
   • a strong verbal hook (hot take, surprising claim, story beat, punchline, tight quote)
   • visual energy (gestures, reactions, scene change, B-roll cut, on-screen text)
-  • audio energy (laughter, applause, pitch swing, dramatic pause + payoff)
+  • audio energy (laughter, applause, pitch swing, dramatic pause + payoff) — infer this \
+    from the transcript's punctuation/phrasing and any visible reactions in frames, since \
+    you cannot hear the audio directly.
 
 Rules:
   1. Timestamps MUST be in seconds, relative to the start of the FULL video — \
@@ -77,19 +87,27 @@ def _cut_chunk(video_path: str, start: float, end: float, out_path: str) -> str:
     return out_path
 
 
-def _upload_and_wait(client: genai.Client, path: str, max_wait: float = 90.0):
-    """Upload a video file to Gemini and poll until ACTIVE."""
-    f = client.files.upload(file=path)
-    deadline = time.time() + max_wait
-    while getattr(f.state, "name", str(f.state)) == "PROCESSING":
-        if time.time() > deadline:
-            raise TimeoutError(f"Gemini file upload stuck PROCESSING for {path}")
-        time.sleep(1.5)
-        f = client.files.get(name=f.name)
-    state = getattr(f.state, "name", str(f.state))
-    if state != "ACTIVE":
-        raise RuntimeError(f"Gemini file upload failed ({state}) for {path}")
-    return f
+def _sample_frames(video_path: str, out_dir: str, interval: float, max_frames: int) -> list[str]:
+    """Sample frames at `interval` seconds via ffmpeg fps filter, return sorted paths."""
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    fps = 1.0 / interval
+    pattern = str(Path(out_dir) / "f_%04d.jpg")
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-i", video_path,
+        "-vf", f"fps={fps}",
+        "-q:v", "4",
+        pattern,
+    ]
+    subprocess.run(cmd, check=True)
+    frames = sorted(Path(out_dir).glob("f_*.jpg"))[:max_frames]
+    return [str(p) for p in frames]
+
+
+def _frame_to_data_uri(path: str) -> str:
+    with open(path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode("ascii")
+    return f"data:image/jpeg;base64,{b64}"
 
 
 def _convergence_modalities(m) -> int:
@@ -100,54 +118,55 @@ def _convergence_modalities(m) -> int:
 # ─── Core: analyze one chunk ─────────────────────────────────
 
 def analyze_chunk(plan: ChunkPlan, video_id: Optional[str] = None) -> list[Moment]:
-    """Run one chunk through Gemini 2.5 Flash multimodal and return Moment[]."""
-    client = genai.Client(api_key=GEMINI_API_KEY)
-
-    # 1. Cut chunk (stream-copy, ~instant) — or pass full video if chunk == video
+    """Run one chunk through frame-sampled OpenRouter vision analysis and return Moment[]."""
     chunk_path = _cut_chunk(
         plan.video_path, plan.start, plan.end,
         out_path=str(Path("outputs") / "chunks" / f"{Path(plan.video_path).stem}_{plan.index}.mp4"),
     )
 
-    # 2. Upload to Gemini File API
-    uploaded = _upload_and_wait(client, chunk_path)
+    frames_dir = str(Path("outputs") / "chunks" / f"{Path(plan.video_path).stem}_{plan.index}_frames")
+    try:
+        frame_paths = _sample_frames(chunk_path, frames_dir, FRAME_SAMPLE_INTERVAL_S, MAX_SAMPLED_FRAMES)
+    except subprocess.CalledProcessError as e:
+        logger.warning("frame sampling failed for chunk %s: %s", plan.index, e)
+        frame_paths = []
 
-    # 3. Build prompt (transcript window + chunk metadata)
     transcript_window_text = _slice_transcript(plan.transcript_window, plan.start, plan.end)
-    user_prompt = (
+    user_text = (
         f"CHUNK METADATA:\n"
         f"  chunk_index = {plan.index}\n"
         f"  chunk_start_seconds = {plan.start:.2f}\n"
-        f"  chunk_end_seconds = {plan.end:.2f}\n\n"
+        f"  chunk_end_seconds = {plan.end:.2f}\n"
+        f"  sampled_frames = {len(frame_paths)} (spaced ~{FRAME_SAMPLE_INTERVAL_S:.1f}s apart)\n\n"
         f"TRANSCRIPT WINDOW (verbatim, word-level):\n{transcript_window_text}\n\n"
         f"Return up to 5 viral-clip moments per the system rules. "
         f"All timestamps must be in seconds relative to the FULL video."
     )
 
-    # 4. Single Gemini call with Pydantic structured output
-    config = genai_types.GenerateContentConfig(
-        system_instruction=SYSTEM_PROMPT,
-        response_mime_type="application/json",
-        response_schema=ChunkAnalysis,
-        temperature=0.4,
-    )
+    content: list[dict] = [{"type": "text", "text": user_text}]
+    for fp in frame_paths:
+        content.append({"type": "image_url", "image_url": {"url": _frame_to_data_uri(fp)}})
 
-    response = client.models.generate_content(
-        model=GEMINI_MODEL_MULTIMODAL,
-        contents=[uploaded, user_prompt],
-        config=config,
-    )
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": content},
+    ]
 
-    # 5. Cache-hit metric (Phase 5)
-    telemetry.record_gemini_call(response, model=GEMINI_MODEL_MULTIMODAL)
+    model = get_vision_model().with_structured_output(ChunkAnalysis, include_raw=True)
 
-    parsed: Optional[ChunkAnalysis] = getattr(response, "parsed", None)
+    try:
+        response = model.invoke(messages)
+        parsed: Optional[ChunkAnalysis] = response.get("parsed") if isinstance(response, dict) else None
+        raw = response.get("raw") if isinstance(response, dict) else None
+        telemetry.record_openrouter_call(raw, model_label="vision")
+    except Exception as e:
+        logger.warning("chunk_analyzer: OpenRouter call failed for chunk %s: %s", plan.index, e)
+        parsed = None
+
     if parsed is None:
-        logger.warning("chunk_analyzer: parsed=None for chunk %s; raw=%r",
-                       plan.index, getattr(response, "text", "")[:300])
+        logger.warning("chunk_analyzer: parsed=None for chunk %s", plan.index)
         return []
 
-    # 6. Map → internal Moment dataclass
     moments: list[Moment] = []
     for m in parsed.moments:
         if m.end <= m.start or (m.end - m.start) < 2.0:
@@ -165,7 +184,6 @@ def analyze_chunk(plan: ChunkPlan, video_id: Optional[str] = None) -> list[Momen
             transcript=m.transcript,
         ))
 
-    # 7. Publish incremental progress to Redis (Phase 3)
     if video_id:
         try:
             from autoclip.services.events import publish_chunk_done

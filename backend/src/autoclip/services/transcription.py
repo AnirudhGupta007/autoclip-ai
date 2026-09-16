@@ -1,39 +1,69 @@
-"""Groq Whisper Turbo transcription with audio chunking for long videos.
+"""OpenRouter audio-transcription with audio chunking for long videos.
 
-Groq's API caps audio uploads at 25 MB. WAV at 16 kHz mono PCM hits that
-around 13 min, so for 2+ hr podcasts we must split the audio first.
-This module re-encodes to Opus (small) and splits into ~10-min segments,
-then transcribes them in parallel and merges with absolute timestamp offsets.
+OpenRouter has no dedicated ASR/Whisper endpoint — there is no
+`/audio/transcriptions` route the way Groq/OpenAI expose one. Instead this
+sends each audio segment as an `input_audio` chat-completion content part
+(the OpenAI-compatible audio-input shape) to an audio-capable model
+(OPENROUTER_MODEL_AUDIO, default google/gemini-2.5-flash via OpenRouter)
+and asks for a structured phrase-level transcript with timestamps.
+
+Known precision tradeoff vs. the old Groq Whisper approach: Whisper gives
+true forced-alignment word-level timestamps. A chat-completion model can
+only *estimate* phrase-level start/end times from the audio, so per-word
+timestamps here are approximated by evenly distributing each phrase's
+words across its estimated [start, end] window. This is good enough for
+scene/word-boundary snapping in clip_selector, but is not frame-accurate
+the way Whisper's word timestamps were — flagged here and in the README.
+
+We still split long audio into ~10-min segments and transcribe them in
+parallel (same shape/tunables as before), since a single OpenRouter
+chat-completion call has payload-size and latency limits similar to any
+other provider.
 """
 from __future__ import annotations
 import os
-import json
+import base64
 import logging
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+from typing import Optional
 
-from groq import Groq
-from autoclip.config import GROQ_API_KEY, GROQ_TRANSCRIPTION_MODEL
+from pydantic import BaseModel, Field
+
+from autoclip.llm.openrouter import get_audio_model
 
 logger = logging.getLogger(__name__)
 
-# Tunables — env-overridable so we can dial in per-deployment.
 TRANSCRIBE_SEGMENT_SECONDS = float(os.getenv("TRANSCRIBE_SEGMENT_SECONDS", "600"))   # 10 min
 TRANSCRIBE_SINGLE_SHOT_MAX = float(os.getenv("TRANSCRIBE_SINGLE_SHOT_MAX", "780"))   # 13 min
 TRANSCRIBE_PARALLELISM = int(os.getenv("TRANSCRIBE_PARALLELISM", "4"))
 
+SYSTEM_PROMPT = (
+    "You are a verbatim audio transcriber. Listen to the supplied audio and "
+    "return every spoken phrase in order, each with an estimated start and "
+    "end time in seconds relative to the start of THIS audio clip. Do not "
+    "summarize or paraphrase — transcribe exactly what is said. Break the "
+    "transcript into short phrases (roughly 3-10 words) so timestamps stay "
+    "precise."
+)
+
+
+class _Phrase(BaseModel):
+    text: str = Field(description="Verbatim phrase text")
+    start: float = Field(description="Start time in seconds, relative to this audio clip")
+    end: float = Field(description="End time in seconds, relative to this audio clip")
+
+
+class _TranscriptResult(BaseModel):
+    phrases: list[_Phrase] = Field(default_factory=list)
+
 
 # ─── Helpers ─────────────────────────────────────────────────
 
-def _g(obj, key):
-    return obj[key] if isinstance(obj, dict) else getattr(obj, key, None)
-
-
 def _ffprobe_duration(path: str) -> float:
-    """Return audio/video duration in seconds via ffprobe."""
     cmd = [
         "ffprobe", "-v", "error", "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1", path,
@@ -45,14 +75,13 @@ def _ffprobe_duration(path: str) -> float:
         return 0.0
 
 
-def _encode_opus(input_path: str, output_path: str) -> str:
-    """Re-encode audio to Opus mono — ~10x smaller than WAV at usable quality."""
+def _encode_wav(input_path: str, output_path: str) -> str:
+    """Re-encode to 16kHz mono WAV — the most broadly-supported input_audio format."""
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-i", input_path,
         "-vn", "-ac", "1", "-ar", "16000",
-        "-c:a", "libopus", "-b:a", "32k",
         output_path,
     ]
     subprocess.run(cmd, check=True)
@@ -60,13 +89,11 @@ def _encode_opus(input_path: str, output_path: str) -> str:
 
 
 def _split_into_segments(input_path: str, work_dir: str, segment_seconds: float) -> list[tuple[str, float]]:
-    """Re-encode + split the audio into Opus segments. Returns [(path, start_offset_s), ...]."""
-    pattern = str(Path(work_dir) / "seg_%04d.opus")
+    pattern = str(Path(work_dir) / "seg_%04d.wav")
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-i", input_path,
         "-vn", "-ac", "1", "-ar", "16000",
-        "-c:a", "libopus", "-b:a", "32k",
         "-f", "segment",
         "-segment_time", str(segment_seconds),
         "-reset_timestamps", "1",
@@ -74,58 +101,64 @@ def _split_into_segments(input_path: str, work_dir: str, segment_seconds: float)
     ]
     subprocess.run(cmd, check=True)
 
-    segs = sorted(Path(work_dir).glob("seg_*.opus"))
-    out: list[tuple[str, float]] = []
-    for i, p in enumerate(segs):
-        out.append((str(p), i * segment_seconds))
-    return out
+    segs = sorted(Path(work_dir).glob("seg_*.wav"))
+    return [(str(p), i * segment_seconds) for i, p in enumerate(segs)]
+
+
+def _words_from_phrase(phrase: _Phrase) -> list[dict]:
+    """Approximate per-word timestamps by evenly splitting a phrase's window."""
+    tokens = phrase.text.split()
+    if not tokens:
+        return []
+    span = max(phrase.end - phrase.start, 0.01)
+    step = span / len(tokens)
+    words = []
+    for i, tok in enumerate(tokens):
+        w_start = phrase.start + i * step
+        w_end = phrase.start + (i + 1) * step
+        words.append({"text": tok, "start": round(w_start, 3), "end": round(w_end, 3),
+                       "confidence": None, "speaker": None})
+    return words
 
 
 # ─── Single-segment transcription ───────────────────────────
 
 def _transcribe_segment(path: str, offset_seconds: float) -> dict:
-    """Transcribe one audio file via Groq and offset all timestamps by `offset_seconds`."""
-    client = Groq(api_key=GROQ_API_KEY)
+    """Transcribe one audio file via OpenRouter and offset all timestamps."""
     with open(path, "rb") as f:
-        result = client.audio.transcriptions.create(
-            file=f,
-            model=GROQ_TRANSCRIPTION_MODEL,
-            response_format="verbose_json",
-            timestamp_granularities=["word", "segment"],
-        )
+        audio_b64 = base64.b64encode(f.read()).decode("ascii")
 
-    raw_words = getattr(result, "words", None) or []
-    words = [
+    model = get_audio_model().with_structured_output(_TranscriptResult)
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
         {
-            "text": _g(w, "word") or _g(w, "text") or "",
-            "start": float(_g(w, "start") or 0.0) + offset_seconds,
-            "end": float(_g(w, "end") or 0.0) + offset_seconds,
-            "confidence": None,
-            "speaker": None,
-        }
-        for w in raw_words
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Transcribe this audio."},
+                {"type": "input_audio", "input_audio": {"data": audio_b64, "format": "wav"}},
+            ],
+        },
     ]
 
-    raw_segments = getattr(result, "segments", None) or []
-    utterances = [
-        {
-            "speaker": "A",
-            "text": (_g(s, "text") or "").strip(),
-            "start": float(_g(s, "start") or 0.0) + offset_seconds,
-            "end": float(_g(s, "end") or 0.0) + offset_seconds,
-        }
-        for s in raw_segments
-    ]
+    try:
+        result: _TranscriptResult = model.invoke(messages)
+    except Exception as e:
+        logger.warning("transcribe segment failed (offset=%.0fs): %s", offset_seconds, e)
+        result = _TranscriptResult()
 
-    duration = float(getattr(result, "duration", 0.0) or 0.0)
+    words: list[dict] = []
+    utterances: list[dict] = []
+    for p in result.phrases:
+        p_offset = _Phrase(text=p.text, start=p.start + offset_seconds, end=p.end + offset_seconds)
+        words.extend(_words_from_phrase(p_offset))
+        utterances.append({"speaker": "A", "text": p.text.strip(),
+                            "start": p_offset.start, "end": p_offset.end})
 
-    return {
-        "text": getattr(result, "text", "") or "",
-        "words": words,
-        "utterances": utterances,
-        "duration": duration,
-        "offset": offset_seconds,
-    }
+    text = " ".join(p.text.strip() for p in result.phrases if p.text).strip()
+    duration = _ffprobe_duration(path)
+
+    return {"text": text, "words": words, "utterances": utterances,
+            "duration": duration, "offset": offset_seconds}
 
 
 # ─── Public entry ────────────────────────────────────────────
@@ -139,34 +172,29 @@ def transcribe_audio(audio_path: str) -> dict:
     duration = _ffprobe_duration(audio_path)
     logger.info("transcribe_audio: %.1fs source", duration)
 
-    # Short enough to send in one shot — but still re-encode to Opus to keep
-    # us under 25 MB on long-but-under-13min recordings.
     if duration > 0 and duration <= TRANSCRIBE_SINGLE_SHOT_MAX:
         with tempfile.TemporaryDirectory(prefix="atc_tx_") as tmp:
-            opus_path = str(Path(tmp) / "audio.opus")
+            wav_path = str(Path(tmp) / "audio.wav")
             try:
-                _encode_opus(audio_path, opus_path)
-                result = _transcribe_segment(opus_path, offset_seconds=0.0)
+                _encode_wav(audio_path, wav_path)
+                result = _transcribe_segment(wav_path, offset_seconds=0.0)
             except subprocess.CalledProcessError:
-                # If ffmpeg/Opus isn't available, fall back to the original file
                 result = _transcribe_segment(audio_path, offset_seconds=0.0)
         result["duration"] = result["duration"] or duration
         result.pop("offset", None)
         return result
 
-    # Long-form: split + parallel
     work_dir = tempfile.mkdtemp(prefix="atc_tx_")
     try:
         segments = _split_into_segments(audio_path, work_dir, TRANSCRIBE_SEGMENT_SECONDS)
         logger.info(
-            "transcribe_audio: %d segments × %.0fs (parallel=%d)",
+            "transcribe_audio: %d segments x %.0fs (parallel=%d)",
             len(segments), TRANSCRIBE_SEGMENT_SECONDS, TRANSCRIBE_PARALLELISM,
         )
 
         with ThreadPoolExecutor(max_workers=max(1, TRANSCRIBE_PARALLELISM)) as ex:
             results = list(ex.map(lambda s: _transcribe_segment(*s), segments))
 
-        # Merge in segment order
         results.sort(key=lambda r: r.get("offset", 0.0))
         merged_text = " ".join((r["text"] or "").strip() for r in results if r["text"]).strip()
         merged_words: list[dict] = []

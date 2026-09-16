@@ -72,6 +72,7 @@ class ClipConfig:
     style: str = "any"
     frame: str = "9:16"
     caption_style: str = "bold_pop"
+    query: str = ""  # freeform user text driving RAG retrieval; falls back to `style` when empty
 
 
 @dataclass

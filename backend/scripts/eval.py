@@ -102,7 +102,7 @@ def main() -> int:
     print(f"mean convergence score: {statistics.fmean(convergence_means):.3f}" if convergence_means else "no moments")
     print(f"mean wall time:         {statistics.fmean(durations):.1f}s")
     print()
-    print("--- Gemini cache hit rate per model ---")
+    print("--- OpenRouter cache hit rate per model_label ---")
     for model, snap in telemetry.snapshot().items():
         print(
             f"  {model}: calls={snap.calls} prompt={snap.prompt_tokens} "

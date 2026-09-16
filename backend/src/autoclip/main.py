@@ -54,7 +54,7 @@ def health():
 
 @app.get("/api/telemetry")
 def telemetry():
-    """Lightweight rollup of Gemini calls + cache hit rate (Phase 5)."""
+    """Lightweight rollup of OpenRouter calls + cache hit rate, per model_label."""
     from autoclip.pipeline import telemetry as t
     return {
         model: {

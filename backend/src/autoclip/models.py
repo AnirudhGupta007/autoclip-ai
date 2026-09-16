@@ -10,7 +10,7 @@ from autoclip.database import Base
 if DATABASE_URL.startswith("postgres"):
     try:
         from pgvector.sqlalchemy import Vector  # type: ignore
-        from autoclip.services.embeddings import EMBEDDING_DIM
+        from autoclip.config import EMBEDDING_DIM
         _EmbeddingColumn = Vector(EMBEDDING_DIM)
     except Exception:
         _EmbeddingColumn = JSON

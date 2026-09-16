@@ -1,24 +1,39 @@
-"""Gemini embeddings + pgvector helpers (Phase 2.5).
+"""Local embeddings + pgvector helpers.
 
-Embeds moment transcripts at fusion time and pushes them to a pgvector
-column on the moments table. Powers semantic moment search across videos.
+OpenRouter has no embeddings endpoint at all (it's chat-completions only),
+so this is the one call site in the app that does NOT go through
+OpenRouter. Instead it uses a local sentence-transformers model —
+no API key, no network call, runs in-process. This keeps the pgvector
+column format (list[float]) and every call site (moment_store.py,
+routers/search.py, the rag/ package) unaware that embeddings moved local.
 """
 from __future__ import annotations
-import os
 import logging
+import threading
 from typing import Iterable, Optional
-from google import genai
-from autoclip.config import GEMINI_API_KEY
+
+from autoclip.config import EMBEDDING_MODEL_NAME, EMBEDDING_DIM
 from autoclip.pipeline.state import Moment
 
 logger = logging.getLogger(__name__)
 
-EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
-EMBEDDING_DIM = int(os.getenv("GEMINI_EMBEDDING_DIM", "768"))
+EMBEDDING_MODEL = EMBEDDING_MODEL_NAME  # kept for backward-compat imports (models.py)
+
+_model_lock = threading.Lock()
+_model = None
 
 
-def _client() -> genai.Client:
-    return genai.Client(api_key=GEMINI_API_KEY)
+def _get_model():
+    """Lazily load the sentence-transformers model as a module-level singleton."""
+    global _model
+    if _model is not None:
+        return _model
+    with _model_lock:
+        if _model is None:
+            from sentence_transformers import SentenceTransformer
+            logger.info("Loading local embedding model %s", EMBEDDING_MODEL_NAME)
+            _model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+    return _model
 
 
 def embed_text(text: str) -> Optional[list[float]]:
@@ -26,12 +41,8 @@ def embed_text(text: str) -> Optional[list[float]]:
     if not text:
         return None
     try:
-        resp = _client().models.embed_content(
-            model=EMBEDDING_MODEL,
-            contents=text,
-        )
-        emb = resp.embeddings[0]
-        return list(getattr(emb, "values", emb))
+        vec = _get_model().encode(text, normalize_embeddings=True)
+        return [float(x) for x in vec]
     except Exception as e:
         logger.warning("embed_text failed: %s", e)
         return None

@@ -31,4 +31,11 @@ def persist_moments(db: Session, video_id: str, moments: list[Moment]) -> int:
         n += 1
     db.commit()
     logger.info("persist_moments: stored %d moments for video=%s", n, video_id)
+
+    try:
+        from autoclip.rag.index import index_moments
+        index_moments(video_id, moments)
+    except Exception as e:
+        logger.warning("RAG indexing failed for video=%s (non-fatal): %s", video_id, e)
+
     return n

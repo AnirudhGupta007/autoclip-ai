@@ -1,51 +1,46 @@
-"""Clip selector node — picks moments based on user preferences and produces clips."""
-import json
-import time
-from pathlib import Path
-from google import genai
-from autoclip.config import GEMINI_API_KEY, GEMINI_RPM_DELAY, GEMINI_MODEL_LITE
+"""Clip selector node — RAG-driven moment selection + OpenRouter scoring/titles.
+
+Replaces the old fixed 5-value style-enum keyword filter with real semantic
+retrieval (autoclip.rag.retriever) over the moment map: `ClipConfig.query`
+(freeform user text, e.g. "roasts a competitor") drives retrieval directly;
+when empty, `ClipConfig.style` is used as the query so old-style requests
+("funny clips") still resolve to something reasonable without RAG-specific
+phrasing.
+"""
+from __future__ import annotations
+from autoclip.llm.openrouter import get_chat_model
 from autoclip.models import generate_id
-from autoclip.pipeline.state import PipelineState, ClipConfig, ProducedClip, Moment
+from autoclip.pipeline import telemetry
+from autoclip.pipeline.state import PipelineState, ClipConfig, ProducedClip, Moment, EngagementScores
+from autoclip.rag.retriever import retrieve_moments
 
 
-def _select_moments(
+def _select_moment(
+    video_id: str,
     moment_map: list[Moment],
     config: ClipConfig,
     used_ranges: list[tuple],
 ) -> Moment | None:
-    """Select the best unused moment matching config criteria."""
-    target_length = config.length
+    """RAG-retrieve the best unused moment matching the user's request."""
+    query = config.query.strip() if config.query else ""
+    if not query and config.style and config.style != "any":
+        query = f"{config.style} moment"
+    if not query:
+        query = "the most engaging, high-energy moment"
 
-    for moment in moment_map:
-        moment_duration = moment.end - moment.start
+    candidates = retrieve_moments(
+        video_id=video_id, query=query, k=10,
+        min_convergence=0.0, exclude_ranges=tuple(used_ranges),
+    )
+    if candidates:
+        return candidates[0]
 
-        # Skip if already used (avoid duplicate clips)
-        overlap = False
-        for used_start, used_end in used_ranges:
-            if moment.start < used_end and moment.end > used_start:
-                overlap = True
-                break
-        if overlap:
-            continue
-
-        # Filter by style if specified
-        if config.style != "any":
-            # Map user-friendly styles to hook types
-            style_map = {
-                "funny": ["funny", "story"],
-                "dramatic": ["emotional", "controversial", "hot_take"],
-                "educational": ["educational", "quote"],
-                "motivational": ["emotional", "story", "quote"],
-                "controversial": ["controversial", "hot_take"],
-            }
-            allowed_types = style_map.get(config.style, [])
-            if allowed_types and not any(tag in allowed_types for tag in moment.style_tags):
-                # Relax filter: if no exact match, still consider high-scoring moments
-                if moment.convergence_score < 0.7:
-                    continue
-
-        return moment
-
+    # Fallback: retrieval found nothing usable (e.g. empty index) — take the
+    # highest-convergence unused moment from the in-state map directly.
+    for moment in sorted(moment_map, key=lambda m: m.convergence_score, reverse=True):
+        overlap = any(moment.start < e and moment.end > s for s, e in used_ranges)
+        if not overlap:
+            return moment
     return None
 
 
@@ -62,7 +57,6 @@ def _expand_moment_to_length(
     clip_start = max(0, center - half_len)
     clip_end = clip_start + target_length
 
-    # Snap to scene boundaries if close (within 2 seconds)
     for boundary in scene_boundaries:
         if abs(clip_start - boundary) < 2.0:
             clip_start = boundary
@@ -71,16 +65,12 @@ def _expand_moment_to_length(
             clip_end = boundary
             clip_start = max(0, clip_end - target_length)
 
-    # Snap to word boundaries
     words = transcript_data.get("words", [])
     if words:
-        # Find nearest word start for clip_start
         for w in words:
             if w["start"] >= clip_start - 0.5:
                 clip_start = w["start"]
                 break
-
-        # Find nearest word end for clip_end
         for w in reversed(words):
             if w["end"] <= clip_end + 0.5:
                 clip_end = w["end"]
@@ -89,10 +79,14 @@ def _expand_moment_to_length(
     return round(clip_start, 3), round(clip_end, 3)
 
 
-def _score_clip_with_gemini(moment: Moment, transcript: str) -> dict:
-    """Get engagement scores for a clip using Gemini."""
-    client = genai.Client(api_key=GEMINI_API_KEY)
+_SCORE_WEIGHTS = {
+    "hook": 0.20, "emotion": 0.20, "shareability": 0.15,
+    "retention": 0.20, "controversy": 0.10, "novelty": 0.15,
+}
 
+
+def _score_clip(moment: Moment, transcript: str) -> dict:
+    """Get engagement scores for a clip via OpenRouter structured output."""
     prompt = f"""Rate this video clip on 6 dimensions (each 1-10). Be critical.
 
 Content description: {moment.description}
@@ -109,41 +103,24 @@ Dimensions:
 3. Shareability — Would people repost this?
 4. Retention — Will viewers watch until the end?
 5. Controversy — Does it spark discussion?
-6. Novelty — Is it fresh and surprising?
+6. Novelty — Is it fresh and surprising?"""
 
-Return ONLY valid JSON:
-{{"hook": N, "emotion": N, "shareability": N, "retention": N, "controversy": N, "novelty": N}}
-
-JSON:"""
-
-    time.sleep(GEMINI_RPM_DELAY)
-    response = client.models.generate_content(model=GEMINI_MODEL_LITE, contents=prompt)
-    text = response.text.strip()
-
-    if "```json" in text:
-        text = text.split("```json")[1].split("```")[0]
-    elif "```" in text:
-        text = text.split("```")[1].split("```")[0]
-
+    model = get_chat_model(lite=True).with_structured_output(EngagementScores, include_raw=True)
     try:
-        scores = json.loads(text.strip())
-    except json.JSONDecodeError:
+        response = model.invoke(prompt)
+        parsed: EngagementScores = response["parsed"]
+        telemetry.record_openrouter_call(response["raw"], model_label="lite_scoring")
+        scores = parsed.model_dump()
+    except Exception:
         scores = {"hook": 5, "emotion": 5, "shareability": 5, "retention": 5, "controversy": 5, "novelty": 5}
 
-    weights = {
-        "hook": 0.20, "emotion": 0.20, "shareability": 0.15,
-        "retention": 0.20, "controversy": 0.10, "novelty": 0.15
-    }
-    overall = sum(scores.get(k, 5) * w for k, w in weights.items())
+    overall = sum(scores.get(k, 5) * w for k, w in _SCORE_WEIGHTS.items())
     scores["overall"] = round(overall, 2)
-
     return scores
 
 
 def _generate_title(moment: Moment, transcript: str) -> str:
-    """Generate a catchy title for the clip."""
-    client = genai.Client(api_key=GEMINI_API_KEY)
-
+    """Generate a catchy title for the clip via OpenRouter."""
     prompt = f"""Generate a catchy, short title (max 50 chars) for this video clip.
 The title should be engaging and describe the key moment.
 
@@ -152,15 +129,19 @@ Transcript excerpt: {transcript[:300]}
 
 Return ONLY the title text, nothing else."""
 
-    time.sleep(GEMINI_RPM_DELAY)
-    response = client.models.generate_content(model=GEMINI_MODEL_LITE, contents=prompt)
-    return response.text.strip().strip('"')[:50]
+    model = get_chat_model(lite=True)
+    try:
+        response = model.invoke(prompt)
+        telemetry.record_openrouter_call(response, model_label="lite_title")
+        return response.content.strip().strip('"')[:50]
+    except Exception:
+        return (moment.description or "Untitled clip")[:50]
 
 
 def run_clip_selector(state: PipelineState) -> dict:
     """
-    Select moments from moment_map based on user clip configs.
-    Score and title each clip.
+    Select moments from moment_map based on user clip configs (via RAG
+    retrieval), score and title each clip (via OpenRouter).
     """
     moment_map = state.get("moment_map", [])
     clip_configs = state.get("clip_configs", [])
@@ -172,7 +153,6 @@ def run_clip_selector(state: PipelineState) -> dict:
         return {"clips": [], "error": "No interesting moments found in the video."}
 
     if not clip_configs:
-        # Default: 4 clips, 30s, any style, 9:16
         clip_configs = [ClipConfig() for _ in range(4)]
 
     clips = []
@@ -180,31 +160,25 @@ def run_clip_selector(state: PipelineState) -> dict:
 
     for config in clip_configs:
         if config.moment is not None:
-            # User pinned a specific timestamp — find nearest moment
             nearest = min(moment_map, key=lambda m: abs(m.start - config.moment))
             moment = nearest
         else:
-            moment = _select_moments(moment_map, config, used_ranges)
+            moment = _select_moment(video_id, moment_map, config, used_ranges)
 
         if moment is None:
             continue
 
-        # Expand/trim to target length
         clip_start, clip_end = _expand_moment_to_length(
             moment, config.length, transcript_data, scene_boundaries
         )
 
         used_ranges.append((clip_start, clip_end))
 
-        # Get transcript for this clip
         words = transcript_data.get("words", [])
         clip_words = [w for w in words if w["start"] >= clip_start - 0.1 and w["end"] <= clip_end + 0.1]
         clip_transcript = " ".join(w["text"] for w in clip_words)
 
-        # Score the clip
-        scores = _score_clip_with_gemini(moment, clip_transcript)
-
-        # Generate title
+        scores = _score_clip(moment, clip_transcript)
         title = _generate_title(moment, clip_transcript)
 
         clip = ProducedClip(
@@ -213,7 +187,7 @@ def run_clip_selector(state: PipelineState) -> dict:
             start_time=clip_start,
             end_time=clip_end,
             duration=round(clip_end - clip_start, 2),
-            file_path="",  # filled by production
+            file_path="",
             thumbnail_path=None,
             transcript=clip_transcript,
             scores=scores,
@@ -223,7 +197,6 @@ def run_clip_selector(state: PipelineState) -> dict:
         )
         clips.append(clip)
 
-    # Sort by overall score
     clips.sort(key=lambda c: c.overall_score, reverse=True)
 
     return {"clips": clips}

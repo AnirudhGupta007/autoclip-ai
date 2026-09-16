@@ -1,25 +1,28 @@
-"""Chat router — conversational interface for the video clipping pipeline."""
+"""Chat router — conversational interface for the video clipping pipeline.
+
+Delegates to the deep-agent orchestrator (autoclip.agent.orchestrator)
+instead of the old fixed-intent parser. State that used to live in an
+in-process `_analysis_cache` dict (a real bug under multiple workers/
+replicas) now lives in the DB (Video/Clip/MomentRecord) and the LangGraph
+Postgres checkpointer — both already durable, shared, multi-worker-safe.
+"""
+from __future__ import annotations
 import json
 import asyncio
-from fastapi import APIRouter, Depends, HTTPException, Request
+import logging
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional
-from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
 from autoclip.services import events as pipeline_events
+from autoclip.database import SessionLocal
+from autoclip.models import Video
+from autoclip.agent.orchestrator import orchestrator
 
-from autoclip.database import get_db
-from autoclip.models import Video, Clip, generate_id
-from autoclip.pipeline.chat import parse_user_intent, intent_to_clip_configs, generate_chat_response
-from autoclip.pipeline.graph import pipeline, generation_only
-from autoclip.pipeline.state import PipelineState, ClipConfig
-from autoclip.services.moment_store import persist_moments
-
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/chat", tags=["chat"])
-
-# In-memory store for analysis state per video (in production, use Redis)
-_analysis_cache: dict[str, dict] = {}
 
 
 class ChatMessage(BaseModel):
@@ -29,281 +32,87 @@ class ChatMessage(BaseModel):
 
 class ChatResponse(BaseModel):
     response: str
-    intent: str
+    intent: str = "agent"
     clips: Optional[list[dict]] = None
     moment_count: Optional[int] = None
     is_processing: bool = False
 
 
-def _clip_to_dict(clip) -> dict:
-    """Convert a ProducedClip or Clip model to dict."""
-    if hasattr(clip, "__dict__"):
-        d = {}
-        for k in ["id", "title", "start_time", "end_time", "duration",
-                   "file_path", "thumbnail_path", "transcript", "scores",
-                   "overall_score", "frame", "style_tags"]:
-            d[k] = getattr(clip, k, None)
-        # Convert file paths to URLs
-        if d.get("file_path"):
-            d["file_url"] = "/" + d["file_path"].replace("\\", "/")
-        if d.get("thumbnail_path"):
-            d["thumbnail_url"] = "/" + d["thumbnail_path"].replace("\\", "/")
-        return d
-    return clip
+def _extract_clips_from_run(result: dict) -> list[dict]:
+    """Pull clip lists out of any tool-call results in the agent run's
+    message history (select_and_produce_clips / modify_clip results)."""
+    clips: list[dict] = []
+    for msg in result.get("messages", []):
+        if isinstance(msg, ToolMessage) and msg.name in ("select_and_produce_clips", "modify_clip"):
+            try:
+                content = json.loads(msg.content) if isinstance(msg.content, str) else msg.content
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if isinstance(content, list):
+                clips.extend(content)
+            elif isinstance(content, dict) and "id" in content:
+                clips.append(content)
+    return clips
+
+
+def _final_text(result: dict) -> str:
+    for msg in reversed(result.get("messages", [])):
+        if isinstance(msg, AIMessage) and msg.content:
+            return msg.content if isinstance(msg.content, str) else str(msg.content)
+    return "I couldn't come up with a reply — try rephrasing your request."
 
 
 @router.post("/message", response_model=ChatResponse)
-async def chat_message(msg: ChatMessage, db: Session = Depends(get_db)):
-    """
-    Process a chat message and return a response.
-    This is the main interface — users send natural language, get clips back.
-    """
+async def chat_message(msg: ChatMessage):
+    """Process a chat message via the deep-agent orchestrator and return a
+    response. Same request/response JSON shape as before, so the frontend
+    (Chat.jsx / api.js) needs no changes."""
     video_id = msg.video_id
     message = msg.message.strip()
 
     if not message:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
-    # Check if we have a video
-    video = None
     if video_id:
-        video = db.query(Video).filter(Video.id == video_id).first()
-
-    has_video = video is not None
-    has_analysis = video_id in _analysis_cache and _analysis_cache[video_id].get("analysis_complete")
-    has_clips = video_id in _analysis_cache and bool(_analysis_cache[video_id].get("clips"))
-
-    # Parse intent
-    intent_result = await asyncio.to_thread(
-        parse_user_intent, message, has_video, has_analysis, has_clips
-    )
-    intent = intent_result.get("intent", "ask_question")
-    params = intent_result.get("params", {})
-
-    # Handle greeting
-    if intent == "greeting":
-        response_text = generate_chat_response(intent, params)
-        return ChatResponse(response=response_text, intent=intent)
-
-    # Handle generate_clips
-    if intent == "generate_clips":
-        if not video:
-            return ChatResponse(
-                response="Please upload a video first, then tell me what clips you want!",
-                intent=intent,
-            )
-
-        clip_configs = intent_to_clip_configs(params)
-
-        # Checkpointing config — thread_id ties state to this video's conversation
-        run_config = {"configurable": {"thread_id": video_id}}
-
-        # Check if analysis exists
-        if has_analysis:
-            # Reuse existing analysis, just generate new clips
-            cached = _analysis_cache[video_id]
-            state = {
-                **cached,
-                "clip_configs": clip_configs,
-            }
-            result = await asyncio.to_thread(generation_only.invoke, state)
-        else:
-            # Run full analysis + generation via checkpointed pipeline
-            state: PipelineState = {
-                "video_id": video_id,
-                "video_path": video.file_path,
-                "clip_configs": clip_configs,
-                "analysis_complete": False,
-                "needs_reanalysis": False,
-                "chunk_plans": [],
-                "moment_map_raw": [],
-                "scene_boundaries": [],
-            }
-
-            # Update video status
-            video.status = "processing"
-            db.commit()
-
-            try:
-                result = await asyncio.to_thread(
-                    pipeline.invoke, state, run_config
-                )
-            except Exception as e:
-                video.status = "failed"
-                db.commit()
-                return ChatResponse(
-                    response=f"Analysis failed: {str(e)}. Please try again.",
-                    intent=intent,
-                )
-
-            video.status = "completed"
-            db.commit()
-
-        # Cache analysis results
-        _analysis_cache[video_id] = {
-            "video_id": video_id,
-            "video_path": video.file_path,
-            "video_duration": result.get("video_duration", 0.0),
-            "moment_map": result.get("moment_map", []),
-            "scene_boundaries": result.get("scene_boundaries", []),
-            "transcript_data": result.get("transcript_data", {}),
-            "analysis_complete": True,
-            "clips": result.get("clips", []),
-        }
-
-        # Phase 2.5: persist moments + embeddings for /api/search
+        db = SessionLocal()
         try:
-            persist_moments(db, video_id, result.get("moment_map", []))
-        except Exception as e:
-            # Non-fatal — search just won't have data for this video
-            import logging
-            logging.getLogger(__name__).warning("persist_moments failed: %s", e)
+            video = db.query(Video).filter(Video.id == video_id).first()
+            if not video:
+                return ChatResponse(response="I don't see a video with that ID — try uploading one first.")
+        finally:
+            db.close()
 
-        clips = result.get("clips", [])
+    run_config = {"configurable": {"thread_id": video_id or "no-video"}}
+    context_message = (
+        f"[current video_id: {video_id}]\n{message}" if video_id
+        else f"[no video uploaded yet]\n{message}"
+    )
 
-        # Save clips to database
-        for clip in clips:
-            db_clip = Clip(
-                id=clip.id,
-                video_id=video_id,
-                title=clip.title,
-                start_time=clip.start_time,
-                end_time=clip.end_time,
-                duration=clip.duration,
-                file_path=clip.file_path,
-                thumbnail_path=clip.thumbnail_path,
-                transcript=clip.transcript,
-                scores=clip.scores,
-                overall_score=clip.overall_score,
-                caption_style="bold_pop",
-            )
-            db.add(db_clip)
-        db.commit()
-
-        clip_dicts = [_clip_to_dict(c) for c in clips]
-        response_text = generate_chat_response(intent, params, clips=clips)
-        moment_count = len(result.get("moment_map", []))
-
-        return ChatResponse(
-            response=response_text,
-            intent=intent,
-            clips=clip_dicts,
-            moment_count=moment_count,
+    try:
+        result = await asyncio.to_thread(
+            orchestrator.invoke,
+            {"messages": [HumanMessage(content=context_message)]},
+            run_config,
         )
+    except Exception as e:
+        logger.exception("orchestrator run failed")
+        return ChatResponse(response=f"Something went wrong: {e}. Try again.")
 
-    # Handle modify_clip
-    if intent == "modify_clip":
-        if not has_clips:
-            return ChatResponse(
-                response="Generate some clips first! Tell me what you want, like '4 funny TikTok clips'.",
-                intent=intent,
-            )
+    clips = _extract_clips_from_run(result)
+    response_text = _final_text(result)
 
-        cached = _analysis_cache[video_id]
-        clips = cached.get("clips", [])
-        clip_index = params.get("clip_index", 1) - 1
-        action = params.get("action", "")
-
-        if clip_index < 0 or clip_index >= len(clips):
-            return ChatResponse(
-                response=f"I only have {len(clips)} clips. Pick a number between 1 and {len(clips)}.",
-                intent=intent,
-            )
-
-        # Create modified config
-        old_clip = clips[clip_index]
-        new_config = ClipConfig(
-            moment=old_clip.start_time if action != "different_moment" else None,
-            length=params.get("new_length", int(old_clip.duration)),
-            style="any",
-            frame=params.get("new_frame", old_clip.frame),
-        )
-
-        if action == "shorten":
-            new_config.length = max(15, int(old_clip.duration - 15))
-        elif action == "lengthen":
-            new_config.length = min(90, int(old_clip.duration + 15))
-
-        # Re-generate just this clip
-        gen_state = {
-            **cached,
-            "clip_configs": [new_config],
-        }
-        result = await asyncio.to_thread(generation_only.invoke, gen_state)
-
-        new_clips = result.get("clips", [])
-        if new_clips:
-            clips[clip_index] = new_clips[0]
-            cached["clips"] = clips
-
-            # Update in database
-            db_clip = db.query(Clip).filter(Clip.id == old_clip.id).first()
-            if db_clip:
-                db.delete(db_clip)
-            new_c = new_clips[0]
-            db_clip = Clip(
-                id=new_c.id,
-                video_id=video_id,
-                title=new_c.title,
-                start_time=new_c.start_time,
-                end_time=new_c.end_time,
-                duration=new_c.duration,
-                file_path=new_c.file_path,
-                thumbnail_path=new_c.thumbnail_path,
-                transcript=new_c.transcript,
-                scores=new_c.scores,
-                overall_score=new_c.overall_score,
-                caption_style="bold_pop",
-            )
-            db.add(db_clip)
-            db.commit()
-
-        clip_dicts = [_clip_to_dict(c) for c in clips]
-        response_text = generate_chat_response(intent, params, clips=clips)
-
-        return ChatResponse(
-            response=response_text,
-            intent=intent,
-            clips=clip_dicts,
-        )
-
-    # Handle ask_question
-    if intent == "ask_question":
-        moment_map = []
-        if video_id and video_id in _analysis_cache:
-            moment_map = _analysis_cache[video_id].get("moment_map", [])
-
-        response_text = generate_chat_response(intent, params, moment_map=moment_map)
-        return ChatResponse(response=response_text, intent=intent)
-
-    # Handle export
-    if intent == "export":
-        clips = []
-        if video_id and video_id in _analysis_cache:
-            clips = _analysis_cache[video_id].get("clips", [])
-
-        clip_dicts = [_clip_to_dict(c) for c in clips]
-        response_text = generate_chat_response(intent, params, clips=clips)
-
-        return ChatResponse(
-            response=response_text,
-            intent=intent,
-            clips=clip_dicts,
-        )
-
-    # Fallback
-    response_text = generate_chat_response(intent, params)
-    return ChatResponse(response=response_text, intent=intent)
+    return ChatResponse(
+        response=response_text,
+        clips=clips or None,
+        moment_count=None,
+    )
 
 
 @router.get("/stream/{video_id}")
 async def stream_pipeline_events(video_id: str, request: Request):
-    """SSE stream of live pipeline events for a video.
-
-    Frontend opens an EventSource on this URL while the pipeline runs;
-    chunk_analyzer/global_fusion/production publish events via Redis pub/sub.
-    Falls back to a heartbeat-only stream if Redis isn't configured.
-    """
+    """SSE stream of live pipeline events for a video — unchanged from
+    before: chunk_analyzer/global_fusion/production publish events via
+    Redis pub/sub, the frontend listens while a chat turn is in flight."""
     async def gen():
         yield {"event": "open", "data": json.dumps({"video_id": video_id})}
         try:
@@ -321,14 +130,15 @@ async def stream_pipeline_events(video_id: str, request: Request):
 
 @router.get("/analysis/{video_id}")
 async def get_analysis_status(video_id: str):
-    """Check if analysis is cached for a video."""
-    cached = _analysis_cache.get(video_id)
-    if not cached:
+    """Check analysis/clip state for a video — now reads the DB directly
+    (get_video_status tool logic) instead of an in-process cache."""
+    from autoclip.agent.tools import get_video_status
+    status = get_video_status.invoke({"video_id": video_id})
+    if not status.get("exists"):
         return {"analyzed": False, "moment_count": 0}
-
     return {
-        "analyzed": cached.get("analysis_complete", False),
-        "duration": cached.get("video_duration", 0.0),
-        "moment_count": len(cached.get("moment_map", [])),
-        "clips_count": len(cached.get("clips", [])),
+        "analyzed": status.get("has_analysis", False),
+        "duration": status.get("duration", 0.0),
+        "moment_count": status.get("moment_count", 0),
+        "clips_count": status.get("clip_count", 0),
     }

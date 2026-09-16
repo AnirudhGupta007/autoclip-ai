@@ -10,17 +10,30 @@ for _env in [Path("/app/.env"), BASE_DIR.parent / ".env", BASE_DIR.parent.parent
         load_dotenv(_env)
         break
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY", "")
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
-# Native video+audio understanding for chunk analysis
-GEMINI_MODEL_MULTIMODAL = os.getenv("GEMINI_MODEL_MULTIMODAL", "gemini-2.5-flash")
-# Classification-shaped tasks: routing, titles, intent — fast + cheap
-GEMINI_MODEL_LITE = os.getenv("GEMINI_MODEL_LITE", "gemini-2.5-flash-lite")
-# Groq Whisper Turbo: 216x realtime ASR
-GROQ_TRANSCRIPTION_MODEL = os.getenv("GROQ_TRANSCRIPTION_MODEL", "whisper-large-v3-turbo")
+# ─── OpenRouter — the only LLM provider in this app ───────────
+# Every text/vision/audio LLM call (deep-agent orchestration, subagents,
+# clip scoring, titles, chat replies, chunk-vision analysis, audio
+# transcription) goes through OpenRouter's OpenAI-compatible API.
+# Embeddings are the one exception — OpenRouter has no embeddings endpoint,
+# see services/embeddings.py.
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+# Deep-agent orchestrator + subagents — needs solid tool-calling/reasoning.
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4.5")
+# Classification-shaped tasks: scoring, titles, chat replies — fast + cheap.
+OPENROUTER_MODEL_LITE = os.getenv("OPENROUTER_MODEL_LITE", "openai/gpt-4o-mini")
+# Frame-sampled chunk analysis (OpenRouter has no native video upload —
+# see pipeline/agents/chunk_analyzer.py for the frame-sampling approach).
+OPENROUTER_MODEL_VISION = os.getenv("OPENROUTER_MODEL_VISION", "google/gemini-2.5-flash")
+# Audio-part transcription (OpenRouter has no dedicated ASR endpoint —
+# see services/transcription.py for the audio-content-part approach).
+OPENROUTER_MODEL_AUDIO = os.getenv("OPENROUTER_MODEL_AUDIO", "google/gemini-2.5-flash")
+
+# Local embedding model (sentence-transformers) — see services/embeddings.py.
+EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
+EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "384"))
 
 # LangSmith auto-instruments LangChain/LangGraph when these are set in env;
 # loading them here just makes the wiring explicit.
@@ -37,8 +50,6 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_SIZE = 500 * 1024 * 1024  # 500MB
-
-GEMINI_RPM_DELAY = 4  # seconds between Gemini calls (free tier = 15 RPM)
 
 CAPTION_STYLES = ["bold_pop", "minimal_clean", "karaoke_sweep", "bounce_in", "glow"]
 
