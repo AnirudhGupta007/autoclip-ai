@@ -50,8 +50,10 @@ def _extract_clips_from_run(result: dict) -> list[dict]:
                 continue
             if isinstance(content, list):
                 clips.extend(content)
+            elif isinstance(content, dict) and isinstance(content.get("clips"), list):
+                clips.extend(content["clips"])          # select_and_produce_clips result
             elif isinstance(content, dict) and "id" in content:
-                clips.append(content)
+                clips.append(content)                    # modify_clip result
     return clips
 
 

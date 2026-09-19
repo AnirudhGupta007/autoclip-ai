@@ -3,15 +3,13 @@
 Every LLM call in autoclip (deep-agent orchestration, subagents, clip
 scoring, titles, chat replies, vision-based chunk analysis, audio
 transcription) goes through OpenRouter's OpenAI-compatible chat-completions
-API. The only exception is embeddings — OpenRouter has no embeddings
-endpoint at all, so `services/embeddings.py` uses a local fastembed (ONNX, no torch)
-model instead (see that file's docstring).
+API. Embeddings also go through OpenRouter (its /embeddings API) — see
+`services/embeddings.py`.
 
-OpenRouter has no native video-file-upload or dedicated-ASR endpoint, so
-`pipeline/agents/chunk_analyzer.py` (frame-sampled vision calls) and
-`services/transcription.py` (audio-part chat-completion calls) both route
-through the vision/audio-capable models configured here rather than a
-separate provider SDK.
+Chunk analysis (`pipeline/agents/chunk_analyzer.py`, sampled frames) and
+transcription (`services/transcription.py`, audio content parts) both use
+the vision/audio-capable models configured here — there's no separate
+provider SDK.
 """
 from __future__ import annotations
 import logging

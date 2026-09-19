@@ -180,8 +180,8 @@ def analyze_chunk(plan: ChunkPlan, video_id: Optional[str] = None) -> list[Momen
             convergence_score=float(m.convergence_score),
             modalities_active=_convergence_modalities(m),
             style_tags=list(m.style_tags),
-            description=m.description,
-            transcript=m.transcript,
+            description=(m.description or "")[:200],
+            transcript=(m.transcript or "")[:1000],
         ))
 
     if video_id:

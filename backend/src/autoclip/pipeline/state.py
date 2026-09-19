@@ -11,8 +11,11 @@ class GeminiMoment(BaseModel):
     """A single high-engagement moment, returned by Gemini per chunk."""
     start: float = Field(description="Start time in seconds (relative to the full video)")
     end: float = Field(description="End time in seconds (relative to the full video)")
-    description: str = Field(max_length=200, description="What happens in this moment")
-    transcript: str = Field(max_length=1000, description="Verbatim transcript of speech in this window")
+    # No max_length: models routinely exceed a tight cap, and a single
+    # over-long field would fail validation for the WHOLE chunk (live-confirmed:
+    # one long description discarded all 5 moments). Truncated on mapping instead.
+    description: str = Field(description="What happens in this moment (aim for <200 chars)")
+    transcript: str = Field(description="Verbatim transcript of speech in this window")
     style_tags: list[
         Literal[
             "hot_take", "story", "quote", "educational",
@@ -139,6 +142,9 @@ class PipelineState(TypedDict, total=False):
 
     # User request
     clip_configs: list[ClipConfig]
+    # Time ranges already claimed by existing clips — keeps repeat
+    # select_and_produce_clips calls from returning duplicates.
+    used_ranges: list[tuple]
 
     # Produced clips
     clips: Annotated[list[ProducedClip], _replace]

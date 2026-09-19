@@ -9,6 +9,9 @@ larger, more representative sample — see "What this doesn't cover" below.
 
 ## Environment
 
+> These runs used the **previous** model defaults listed below. Defaults have
+> since moved to cheap Gemini + open-source models (see README) — not yet re-benchmarked.
+
 - Docker Compose stack (postgres+pgvector, redis, backend, frontend) built
   and run locally.
 - `OPENROUTER_MODEL=anthropic/claude-sonnet-4.5` (orchestrator),

@@ -12,28 +12,25 @@ for _env in [Path("/app/.env"), BASE_DIR.parent / ".env", BASE_DIR.parent.parent
 
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")
 
-# ─── OpenRouter — the only LLM provider in this app ───────────
-# Every text/vision/audio LLM call (deep-agent orchestration, subagents,
-# clip scoring, titles, chat replies, chunk-vision analysis, audio
-# transcription) goes through OpenRouter's OpenAI-compatible API.
-# Embeddings are the one exception — OpenRouter has no embeddings endpoint,
-# see services/embeddings.py.
+# ─── OpenRouter — the only model provider in this app ─────────
+# Every model call — orchestration, subagents, scoring, titles, chunk
+# vision analysis, audio transcription AND embeddings — goes through
+# OpenRouter. Defaults are cheap Gemini models + cheap open-source models.
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-# Deep-agent orchestrator + subagents — needs solid tool-calling/reasoning.
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4.5")
-# Classification-shaped tasks: scoring, titles, chat replies — fast + cheap.
-OPENROUTER_MODEL_LITE = os.getenv("OPENROUTER_MODEL_LITE", "openai/gpt-4o-mini")
-# Frame-sampled chunk analysis (OpenRouter has no native video upload —
-# see pipeline/agents/chunk_analyzer.py for the frame-sampling approach).
-OPENROUTER_MODEL_VISION = os.getenv("OPENROUTER_MODEL_VISION", "google/gemini-2.5-flash")
-# Audio-part transcription (OpenRouter has no dedicated ASR endpoint —
-# see services/transcription.py for the audio-content-part approach).
-OPENROUTER_MODEL_AUDIO = os.getenv("OPENROUTER_MODEL_AUDIO", "google/gemini-2.5-flash")
+# Deep-agent orchestrator + subagents — needs reliable tool-calling.
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash")
+# Scoring / titles — open-source, cheap, supports structured output.
+OPENROUTER_MODEL_LITE = os.getenv("OPENROUTER_MODEL_LITE", "qwen/qwen3-30b-a3b-instruct-2507")
+# Chunk analysis — cheapest Gemini with image+video input.
+OPENROUTER_MODEL_VISION = os.getenv("OPENROUTER_MODEL_VISION", "google/gemini-2.5-flash-lite")
+# Transcription — cheapest Gemini with audio input.
+OPENROUTER_MODEL_AUDIO = os.getenv("OPENROUTER_MODEL_AUDIO", "google/gemini-2.5-flash-lite")
 
-# Local embedding model (fastembed (ONNX, no torch)) — see services/embeddings.py.
-EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-small-en-v1.5")
-EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "384"))
+# Embeddings via OpenRouter's /embeddings API — open-source BGE-M3.
+# EMBEDDING_DIM must match the model's output (sizes the pgvector columns).
+EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "baai/bge-m3")
+EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1024"))
 
 # LangSmith auto-instruments LangChain/LangGraph when these are set in env;
 # loading them here just makes the wiring explicit.

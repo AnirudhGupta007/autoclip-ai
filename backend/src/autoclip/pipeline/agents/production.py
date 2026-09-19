@@ -36,7 +36,28 @@ def run_production(state: PipelineState) -> dict:
             print(f"Failed to cut clip {clip.id}: {e}")
             continue
 
-        # 2. Generate captions
+        # 2. Reframe to target aspect ratio FIRST, then caption.
+        # Captioning before the crop burns text sized for the source frame and
+        # the 9:16 crop then slices both ends off it (live-confirmed: caption
+        # read "top and I'm not su" in the output).
+        reframed_path = str(clip_dir / "reframed.mp4")
+        fmt = EXPORT_FORMATS.get(clip.frame)
+        if fmt and clip.frame != "16:9":
+            try:
+                crop_x = -1
+                if clip.frame == "9:16":
+                    crop_x = detect_face_position(raw_path)
+                reframe_video(
+                    raw_path, reframed_path,
+                    fmt["width"], fmt["height"],
+                    crop_x=crop_x
+                )
+            except Exception:
+                shutil.copy2(raw_path, reframed_path)
+        else:
+            shutil.copy2(raw_path, reframed_path)
+
+        # 3. Generate captions
         ass_path = str(clip_dir / "captions.ass")
         try:
             generate_captions(
@@ -46,33 +67,15 @@ def run_production(state: PipelineState) -> dict:
         except Exception:
             ass_path = None
 
-        # 3. Burn captions onto video
-        captioned_path = str(clip_dir / "captioned.mp4")
+        # 4. Burn captions onto the already-reframed video
+        final_path = str(clip_dir / "final.mp4")
         if ass_path:
             try:
-                burn_captions(raw_path, ass_path, captioned_path)
+                burn_captions(reframed_path, ass_path, final_path)
             except Exception:
-                shutil.copy2(raw_path, captioned_path)
+                shutil.copy2(reframed_path, final_path)
         else:
-            shutil.copy2(raw_path, captioned_path)
-
-        # 4. Reframe to target aspect ratio
-        final_path = str(clip_dir / "final.mp4")
-        fmt = EXPORT_FORMATS.get(clip.frame)
-        if fmt and clip.frame != "16:9":
-            try:
-                crop_x = -1
-                if clip.frame == "9:16":
-                    crop_x = detect_face_position(captioned_path)
-                reframe_video(
-                    captioned_path, final_path,
-                    fmt["width"], fmt["height"],
-                    crop_x=crop_x
-                )
-            except Exception:
-                shutil.copy2(captioned_path, final_path)
-        else:
-            shutil.copy2(captioned_path, final_path)
+            shutil.copy2(reframed_path, final_path)
 
         # 5. Generate thumbnail
         thumb_path = str(clip_dir / "thumbnail.jpg")

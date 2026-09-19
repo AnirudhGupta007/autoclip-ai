@@ -1,69 +1,66 @@
-"""Local embeddings + pgvector helpers.
+"""Embeddings via OpenRouter's OpenAI-compatible /embeddings API + cosine helpers.
 
-OpenRouter has no embeddings endpoint at all (it's chat-completions only),
-so this is the one call site in the app that does NOT go through
-OpenRouter. Instead it uses a local ONNX embedding model via `fastembed` —
-no API key, no network call at inference time, runs in-process.
-
-fastembed, not sentence-transformers, deliberately: sentence-transformers
-pulls the full PyTorch + transformers stack (multi-GB, incl. CUDA wheels by
-default), which is unnecessary weight for a single small embedding model.
-fastembed runs the same class of model (BAAI/bge-small-en-v1.5, 384-dim)
-on ONNX Runtime instead — no torch, a fraction of the install footprint.
-This keeps the pgvector column format (list[float]) and every call site
-(moment_store.py, routers/search.py, the rag/ package) unaware that
-embeddings moved local.
+Default model is open-source BGE-M3 (`baai/bge-m3`, 1024-dim). Call sites
+(moment_store.py, routers/search.py, the rag/ package) only see
+`embed_text` / `embed_moments` returning `list[float]`, so the model can be
+swapped via EMBEDDING_MODEL_NAME/EMBEDDING_DIM without touching them.
 """
 from __future__ import annotations
 import logging
-import threading
+from functools import lru_cache
 from typing import Iterable, Optional
 
-from autoclip.config import EMBEDDING_MODEL_NAME, EMBEDDING_DIM
+from openai import OpenAI
+
+from autoclip.config import (
+    OPENROUTER_API_KEY, OPENROUTER_BASE_URL, EMBEDDING_MODEL_NAME, EMBEDDING_DIM,
+)
 from autoclip.pipeline.state import Moment
 
 logger = logging.getLogger(__name__)
 
 EMBEDDING_MODEL = EMBEDDING_MODEL_NAME  # kept for backward-compat imports (models.py)
-
-_model_lock = threading.Lock()
-_model = None
+_BATCH_SIZE = 64
 
 
-def _get_model():
-    """Lazily load the fastembed ONNX model as a module-level singleton."""
-    global _model
-    if _model is not None:
-        return _model
-    with _model_lock:
-        if _model is None:
-            from fastembed import TextEmbedding
-            logger.info("Loading local embedding model %s", EMBEDDING_MODEL_NAME)
-            _model = TextEmbedding(model_name=EMBEDDING_MODEL_NAME)
-    return _model
+@lru_cache(maxsize=1)
+def _client() -> OpenAI:
+    return OpenAI(base_url=OPENROUTER_BASE_URL, api_key=OPENROUTER_API_KEY or "missing")
+
+
+def embed_texts(texts: list[str]) -> list[Optional[list[float]]]:
+    """Embed many texts in batched API calls; empty inputs map to None."""
+    out: list[Optional[list[float]]] = [None] * len(texts)
+    idx = [i for i, t in enumerate(texts) if (t or "").strip()]
+    for start in range(0, len(idx), _BATCH_SIZE):
+        chunk = idx[start:start + _BATCH_SIZE]
+        try:
+            resp = _client().embeddings.create(
+                model=EMBEDDING_MODEL_NAME,
+                input=[texts[i].strip() for i in chunk],
+            )
+        except Exception as e:
+            logger.warning("embedding batch failed: %s", e)
+            continue
+        for i, item in zip(chunk, sorted(resp.data, key=lambda d: d.index)):
+            vec = [float(x) for x in item.embedding]
+            if len(vec) != EMBEDDING_DIM:
+                logger.warning("embedding dim %d != EMBEDDING_DIM %d — check config",
+                               len(vec), EMBEDDING_DIM)
+            out[i] = vec
+    return out
 
 
 def embed_text(text: str) -> Optional[list[float]]:
-    text = (text or "").strip()
-    if not text:
-        return None
-    try:
-        (vec,) = _get_model().embed([text])
-        return [float(x) for x in vec]
-    except Exception as e:
-        logger.warning("embed_text failed: %s", e)
-        return None
+    return embed_texts([text])[0]
 
 
 def embed_moments(moments: Iterable[Moment]) -> None:
-    """Mutate each Moment to set .embedding when missing."""
-    for m in moments:
-        if m.embedding is not None:
-            continue
-        text = (m.transcript or m.description or "").strip()
-        if not text:
-            continue
-        m.embedding = embed_text(text)
+    """Set .embedding on every moment that lacks one, in one batched call."""
+    todo = [m for m in moments if m.embedding is None and (m.transcript or m.description or "").strip()]
+    vecs = embed_texts([(m.transcript or m.description) for m in todo])
+    for m, v in zip(todo, vecs):
+        m.embedding = v
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -82,11 +79,6 @@ def cosine_sim_dedupe(moments: list[Moment], threshold: float = 0.92) -> list[Mo
         if m.embedding is None:
             kept.append(m)
             continue
-        dup = False
-        for k in kept:
-            if k.embedding and _cosine(m.embedding, k.embedding) >= threshold:
-                dup = True
-                break
-        if not dup:
+        if not any(k.embedding and _cosine(m.embedding, k.embedding) >= threshold for k in kept):
             kept.append(m)
     return kept

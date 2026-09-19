@@ -65,16 +65,22 @@ def _expand_moment_to_length(
             clip_end = boundary
             clip_start = max(0, clip_end - target_length)
 
+    # Snap to word boundaries, but only keep the snap if it doesn't gut the
+    # clip: with sparse/approximate word timings the nearest words can sit far
+    # inside the window and collapse a 15s request down to ~4s.
     words = transcript_data.get("words", [])
     if words:
+        snapped_start, snapped_end = clip_start, clip_end
         for w in words:
             if w["start"] >= clip_start - 0.5:
-                clip_start = w["start"]
+                snapped_start = w["start"]
                 break
         for w in reversed(words):
             if w["end"] <= clip_end + 0.5:
-                clip_end = w["end"]
+                snapped_end = w["end"]
                 break
+        if snapped_end - snapped_start >= 0.8 * target_length:
+            clip_start, clip_end = snapped_start, snapped_end
 
     return round(clip_start, 3), round(clip_end, 3)
 
@@ -156,7 +162,10 @@ def run_clip_selector(state: PipelineState) -> dict:
         clip_configs = [ClipConfig() for _ in range(4)]
 
     clips = []
-    used_ranges = []
+    # Seed with ranges already claimed by clips produced in earlier turns —
+    # otherwise a second select_and_produce_clips call happily returns a
+    # duplicate of the same moment (live-confirmed: two identical clips).
+    used_ranges = [tuple(r) for r in state.get("used_ranges", [])]
 
     for config in clip_configs:
         if config.moment is not None:

@@ -26,7 +26,6 @@ dependencies = [
     "deepagents>=0.1.0",
     "llama-index-core>=0.11.0",
     "llama-index-vector-stores-postgres>=0.2.0",
-    "fastembed>=0.4.0",
     "psycopg2-binary>=2.9.0",
     "pgvector>=0.3.0",
     "redis>=5.0.0",

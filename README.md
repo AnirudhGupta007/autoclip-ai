@@ -13,11 +13,10 @@ style enum. Chunk analysis still runs as a chunk-parallel LangGraph
 Send-API fan-out underneath the agent — that part of the original
 architecture was already good and is reused as a tool, not rebuilt.
 
-**Every LLM call goes through OpenRouter** — orchestrator reasoning,
-subagents, clip scoring, titles, chat replies, frame-sampled vision
-analysis, and audio transcription. The one exception is embeddings:
-OpenRouter has no embeddings endpoint at all, so moment embeddings run on a
-local fastembed (ONNX, no torch) model instead (see [Provider notes](#provider-notes-what-moved-to-openrouter-and-what-didnt)).
+**Every model call goes through OpenRouter**, including embeddings — using
+only cheap Gemini models and cheap open-source models (see
+[Provider notes](#provider-notes-what-moved-to-openrouter-and-what-didnt)).
+One API key, nothing runs locally.
 
 ```
 You:  "Give me 4 funny TikTok clips under 30 seconds"
@@ -44,7 +43,7 @@ POST /api/chat/message  (routers/chat.py — unchanged request/response shape)
      │
      ▼
 agent/orchestrator.py   deepagents.create_deep_agent()
-   model: OpenRouter (OPENROUTER_MODEL, e.g. anthropic/claude-sonnet-4.5)
+   model: OpenRouter (OPENROUTER_MODEL, default google/gemini-2.5-flash)
    checkpointer: LangGraph Postgres saver (thread_id = video_id, resumable)
      │
      ├─ tool: ingest_and_analyze_video ──▶ pipeline/graph.py (unchanged)
@@ -54,7 +53,7 @@ agent/orchestrator.py   deepagents.create_deep_agent()
      │    chunk_analyzer × N (OpenRouter vision, frame-sampled — see below)
      │         │  fan-in
      │         ▼
-     │    global_fusion (dedupe, local fastembed (ONNX, no torch) embeddings)
+     │    global_fusion (dedupe, BGE-M3 embeddings via OpenRouter)
      │         │
      │         ▼
      │    rag/index.py — moments indexed into LlamaIndex (pgvector-backed)
@@ -76,13 +75,13 @@ agent/orchestrator.py   deepagents.create_deep_agent()
 
 ## Provider notes: what moved to OpenRouter, and what didn't
 
-| Call site | Provider | Why |
-|---|---|---|
-| Orchestrator + subagent reasoning | OpenRouter (`OPENROUTER_MODEL`) | Standard chat-completions tool-calling. |
-| Clip scoring, titles, chat replies | OpenRouter (`OPENROUTER_MODEL_LITE`) | Cheap/fast structured-output calls. |
-| Chunk vision analysis | OpenRouter (`OPENROUTER_MODEL_VISION`) | OpenRouter has no native video-file-upload API, so `chunk_analyzer.py` samples ~1 frame every 2.5s via ffmpeg, base64-encodes them as JPEGs, and sends them as multiple `image_url` parts in one chat completion alongside the transcript window. This leans more on the transcript signal than true video understanding would — a known precision tradeoff. |
-| Audio transcription | OpenRouter (`OPENROUTER_MODEL_AUDIO`) | OpenRouter has no dedicated ASR endpoint, so `services/transcription.py` sends each ~10-min audio segment as an `input_audio` chat-completion content part and asks for a phrase-level transcript with timestamps. Per-word timestamps are then *approximated* by evenly distributing each phrase's words across its estimated window — this is not frame-accurate forced alignment the way a dedicated ASR model's word timestamps are, but it's good enough for the scene/word-boundary snapping `clip_selector.py` does. |
-| Moment embeddings | **Local** — `fastembed (ONNX, no torch)` (`BAAI/bge-small-en-v1.5`, 384-dim), no API key, no network call | OpenRouter has no embeddings endpoint at all — this is the one call site that genuinely cannot go through it. |
+| Call site | Default model (via OpenRouter) | $/1M in / out | Notes |
+|---|---|---|---|
+| Orchestrator + subagent reasoning | `google/gemini-2.5-flash` | 0.30 / 2.50 | Needs reliable tool-calling — the one place not using the cheapest tier. |
+| Clip scoring, titles | `qwen/qwen3-30b-a3b-instruct-2507` (open source) | 0.048 / 0.193 | Structured-output calls. |
+| Chunk vision analysis | `google/gemini-2.5-flash-lite` | 0.10 / 0.40 | `chunk_analyzer.py` samples ~1 frame every 2.5s via ffmpeg, base64-encodes them as JPEGs, and sends them as multiple `image_url` parts in one chat completion alongside the transcript window. This leans more on the transcript signal than true video understanding would — a known precision tradeoff. |
+| Audio transcription | `google/gemini-2.5-flash-lite` | 0.10 / 0.40 | OpenRouter has no dedicated ASR endpoint, so `services/transcription.py` sends each ~10-min audio segment as an `input_audio` chat-completion content part and asks for a phrase-level transcript with timestamps. Per-word timestamps are then *approximated* by evenly distributing each phrase's words across its estimated window — this is not frame-accurate forced alignment the way a dedicated ASR model's word timestamps are, but it's good enough for the scene/word-boundary snapping `clip_selector.py` does. |
+| Moment embeddings | `baai/bge-m3` (open source, 1024-dim) | 0.01 / — | OpenRouter's `/embeddings` API, batched. Swap via `EMBEDDING_MODEL_NAME` + `EMBEDDING_DIM` (must match; it sizes the pgvector columns). |
 
 ## Cost & latency
 
@@ -92,7 +91,9 @@ for the full writeup, including 8 real bugs that only surfaced by actually
 running it (none caught by static review). Short version: a full chat
 turn against a short (~24s) test video — orchestrator reasoning, vision
 analysis, RAG retrieval, scoring — took **18–56s wall time** and **≈$0.03–0.07
-per turn**, depending on how many tool calls the agent makes. That's a
+per turn** — measured with the *previous* defaults (Claude Sonnet 4.5
+orchestrator). The current cheap-model defaults cost roughly 5–10× less per
+token; see BENCHMARKS.md for re-measured numbers when available. That's a
 small sample from synthetic test clips, not a rigorous benchmark — run it
 yourself against a real video for numbers that mean something for your use
 case:
@@ -147,8 +148,7 @@ make up
 ```
 
 Browse to **http://localhost**. First build pulls pgvector + redis images
-and installs Python deps (including `fastembed (ONNX, no torch)`, which also
-pulls its embedding model weights on first run — expect a few minutes).
+and installs Python deps — expect a few minutes.
 
 ### Make targets
 
@@ -196,7 +196,7 @@ autoclip-ai/
 │  │  │  ├─ transcription.py        # OpenRouter audio-part transcription + chunking
 │  │  │  ├─ scene_detector.py       # ffmpeg scene filter
 │  │  │  ├─ video_processor.py      # face detection, -c copy cuts, reframing
-│  │  │  ├─ embeddings.py           # local fastembed (ONNX, no torch) + cosine helpers
+│  │  │  ├─ embeddings.py           # OpenRouter embeddings + cosine helpers
 │  │  │  ├─ clip_reprocess.py       # shared re-cut/re-caption logic (HTTP route + agent tool)
 │  │  │  ├─ events.py               # Redis pub/sub publishers + SSE subscriber
 │  │  │  └─ moment_store.py         # persist moments to Postgres + RAG index
@@ -218,12 +218,12 @@ autoclip-ai/
 | Var | Default | What |
 |---|---|---|
 | `OPENROUTER_API_KEY` | — | Required. |
-| `OPENROUTER_MODEL` | `anthropic/claude-sonnet-4.5` | Deep-agent orchestrator + subagents. |
-| `OPENROUTER_MODEL_LITE` | `openai/gpt-4o-mini` | Clip scoring, titles, chat replies. |
-| `OPENROUTER_MODEL_VISION` | `google/gemini-2.5-flash` | Frame-sampled chunk analysis. |
-| `OPENROUTER_MODEL_AUDIO` | `google/gemini-2.5-flash` | Audio-part transcription. |
-| `EMBEDDING_MODEL_NAME` | `BAAI/bge-small-en-v1.5` | Local embedding model (no API key). |
-| `EMBEDDING_DIM` | `384` | Must match the embedding model's output dim (pgvector column size). |
+| `OPENROUTER_MODEL` | `google/gemini-2.5-flash` | Deep-agent orchestrator + subagents. |
+| `OPENROUTER_MODEL_LITE` | `qwen/qwen3-30b-a3b-instruct-2507` | Clip scoring, titles. |
+| `OPENROUTER_MODEL_VISION` | `google/gemini-2.5-flash-lite` | Frame-sampled chunk analysis. |
+| `OPENROUTER_MODEL_AUDIO` | `google/gemini-2.5-flash-lite` | Audio-part transcription. |
+| `EMBEDDING_MODEL_NAME` | `baai/bge-m3` | Embedding model on OpenRouter. |
+| `EMBEDDING_DIM` | `1024` | Must match the embedding model's output dim (pgvector column size). |
 | `CHUNK_LENGTH_SECONDS` | `120` | Analysis chunk size. |
 | `CHUNK_OVERLAP_SECONDS` | `10` | Overlap (helps global_fusion catch boundary moments). |
 | `CHUNK_MAX` | `60` | Safety bound on chunk count. |

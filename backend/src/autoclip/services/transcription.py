@@ -4,7 +4,7 @@ OpenRouter has no dedicated ASR/Whisper endpoint — there is no
 `/audio/transcriptions` route the way Groq/OpenAI expose one. Instead this
 sends each audio segment as an `input_audio` chat-completion content part
 (the OpenAI-compatible audio-input shape) to an audio-capable model
-(OPENROUTER_MODEL_AUDIO, default google/gemini-2.5-flash via OpenRouter)
+(OPENROUTER_MODEL_AUDIO, default google/gemini-2.5-flash-lite via OpenRouter)
 and asks for a structured phrase-level transcript with timestamps.
 
 Known precision tradeoff vs. the old Groq Whisper approach: Whisper gives

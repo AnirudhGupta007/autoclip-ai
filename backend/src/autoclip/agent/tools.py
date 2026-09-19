@@ -133,11 +133,16 @@ def select_and_produce_clips(
     length_seconds: int = 30,
     query: str = "",
     frame: str = "9:16",
-) -> list[dict]:
+) -> dict:
     """Select the best matching moments (via RAG retrieval on `query`) and
-    produce finished clips: cut, captioned, reframed, thumbnailed. Requires
-    the video to already be analyzed (call ingest_and_analyze_video first
-    if get_video_status shows has_analysis=false). `query` is freeform text
+    produce finished clips: cut, captioned, reframed, thumbnailed.
+
+    Returns {"status": ..., "clips_produced": int, "clips": [...], "message": str}.
+    status is one of: "ok" (clips were produced and written to disk),
+    "video_not_found", "not_analyzed" (call ingest_and_analyze_video first),
+    "no_match" (analyzed, but nothing matched the query). Only "ok" with
+    clips_produced > 0 means clips actually exist — report `message` to the
+    user verbatim for any other status. `query` is freeform text
     describing what kind of clips the user wants (e.g. "funny", "where he
     argues about pricing") — it drives semantic retrieval, not just a fixed
     style enum. `frame` is one of "9:16" (TikTok/Reels), "1:1" (square),
@@ -146,11 +151,14 @@ def select_and_produce_clips(
     try:
         video = db.query(Video).filter(Video.id == video_id).first()
         if not video:
-            return []
+            return {"status": "video_not_found", "clips_produced": 0, "clips": [],
+                    "message": f"No video found with id {video_id}. Nothing was produced."}
 
         moment_count = db.query(MomentRecord).filter(MomentRecord.video_id == video_id).count()
         if moment_count == 0:
-            return []
+            return {"status": "not_analyzed", "clips_produced": 0, "clips": [],
+                    "message": ("This video has no analyzed moments yet, so NO clips were "
+                                "produced. Call ingest_and_analyze_video first, then retry.")}
 
         moments_rows = db.query(MomentRecord).filter(MomentRecord.video_id == video_id).all()
         from autoclip.pipeline.state import Moment
@@ -185,6 +193,10 @@ def select_and_produce_clips(
             "transcript_data": transcript_data,
             "scene_boundaries": [],
             "clip_configs": clip_configs,
+            "used_ranges": [
+                (c.start_time, c.end_time)
+                for c in db.query(Clip).filter(Clip.video_id == video_id).all()
+            ],
         }
         result = generation_only.invoke(state)
         clips = result.get("clips", [])
@@ -199,7 +211,13 @@ def select_and_produce_clips(
             ))
         db.commit()
 
-        return [_clip_to_dict(c) for c in clips]
+        produced = [_clip_to_dict(c) for c in clips]
+        if not produced:
+            return {"status": "no_match", "clips_produced": 0, "clips": [],
+                    "message": (f"Analysis found {moment_count} moments, but none matched "
+                                f"{query!r} well enough to clip. NO clips were produced.")}
+        return {"status": "ok", "clips_produced": len(produced), "clips": produced,
+                "message": f"Produced {len(produced)} clip(s)."}
     finally:
         db.close()
 
