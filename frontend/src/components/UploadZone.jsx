@@ -1,62 +1,64 @@
 import { useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { motion } from 'framer-motion'
-import { Upload, Loader2 } from 'lucide-react'
+import { UploadCloud, Loader2 } from 'lucide-react'
 
 export default function UploadZone({ onUpload, uploading, uploadProgress }) {
-  const onDrop = useCallback((accepted) => {
-    if (accepted?.[0]) onUpload(accepted[0])
-  }, [onUpload])
+  const onDrop = useCallback(
+    (files) => { if (files?.[0]) onUpload(files[0]) },
+    [onUpload],
+  )
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { 'video/*': ['.mp4', '.mov', '.avi', '.mkv', '.webm'] },
-    maxFiles: 1,
+    accept: { 'video/*': [] },
+    multiple: false,
     disabled: uploading,
   })
 
   return (
-    <motion.div
+    <div
       {...getRootProps()}
-      animate={{ scale: isDragActive ? 1.02 : 1 }}
-      transition={{ type: 'spring', stiffness: 300 }}
-      className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all ${
-        uploading
-          ? 'border-purple-500/50 bg-purple-500/5'
-          : isDragActive
-            ? 'border-accent bg-accent/5'
-            : 'border-gray-600 hover:border-purple-500/50 hover:bg-purple-500/5'
-      }`}
+      className={`glass group relative w-full cursor-pointer overflow-hidden rounded-3xl px-8 py-14 text-center transition-all duration-500 ease-lux ${
+        isDragActive ? 'border-gold-600 shadow-gold' : 'hover:border-gold-700/50'
+      } ${uploading ? 'cursor-wait' : ''}`}
     >
-      <input {...getInputProps()} />
+      <input {...getInputProps()} aria-label="Upload a video file" />
+
+      <span className="mx-auto mb-6 grid h-14 w-14 place-items-center rounded-2xl border border-gold-700/40 bg-obsidian-800">
+        {uploading ? (
+          <Loader2 size={20} className="animate-spin text-gold" aria-hidden="true" />
+        ) : (
+          <UploadCloud size={20} className="text-gold" aria-hidden="true" />
+        )}
+      </span>
 
       {uploading ? (
-        <div className="space-y-3">
-          <Loader2 className="animate-spin mx-auto text-purple-400" size={28} />
-          <p className="text-sm text-gray-400">Uploading... {uploadProgress}%</p>
-          <div className="w-full max-w-xs mx-auto bg-gray-700 rounded-full h-2">
+        <>
+          <p className="font-display text-xl text-platinum">Uploading…</p>
+          <div className="mx-auto mt-5 h-1 w-56 overflow-hidden rounded-full bg-white/8">
             <motion.div
-              className="h-2 rounded-full bg-gradient-to-r from-primary to-accent"
-              initial={{ width: 0 }}
-              animate={{ width: `${uploadProgress}%` }}
-              transition={{ ease: 'easeOut' }}
+              className="h-full rounded-full bg-gold-sheen bg-[length:200%_auto]"
+              animate={{ width: `${uploadProgress || 0}%` }}
+              transition={{ duration: 0.3, ease: 'easeOut' }}
             />
           </div>
-        </div>
+          <p className="mt-2.5 text-xs text-platinum-dim nums">{uploadProgress || 0}%</p>
+        </>
       ) : (
-        <div className="space-y-2">
-          <motion.div
-            animate={{ y: [0, -4, 0] }}
-            transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
-          >
-            <Upload className="mx-auto text-gray-400" size={32} />
-          </motion.div>
-          <p className="text-sm text-gray-300">
-            {isDragActive ? 'Drop your video here' : 'Drop a video or click to upload'}
+        <>
+          <p className="font-display text-xl text-platinum">
+            {isDragActive ? 'Drop it here' : 'Drop a video, or click to browse'}
           </p>
-          <p className="text-xs text-gray-500">MP4, MOV, AVI, MKV, WebM (max 500MB)</p>
-        </div>
+          <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-platinum-muted">
+            Podcasts, interviews, lectures, films. The longer the source, the
+            more it has to find.
+          </p>
+          <p className="mt-5 text-[11px] uppercase tracking-[0.22em] text-platinum-dim">
+            MP4 · MOV · MKV · WEBM
+          </p>
+        </>
       )}
-    </motion.div>
+    </div>
   )
 }

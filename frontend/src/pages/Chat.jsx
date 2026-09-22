@@ -1,12 +1,23 @@
 import { useState, useRef, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
-import { Send, Loader2, Sparkles } from 'lucide-react'
+import { Send, Loader2, Scissors, ArrowLeft } from 'lucide-react'
 import { uploadVideo, sendChatMessage, openPipelineStream } from '../services/api'
 import HeroSection from '../components/HeroSection'
 import VideoBar from '../components/VideoBar'
 import ChatMessage from '../components/ChatMessage'
 import ProcessingIndicator from '../components/ProcessingIndicator'
 import SuggestedPrompts from '../components/SuggestedPrompts'
+
+/** Human-readable length: seconds under a minute, hours for long films. */
+function fmtLength(seconds) {
+  if (!seconds) return 'reading duration'
+  if (seconds < 60) return `${Math.round(seconds)} seconds`
+  if (seconds < 3600) return `${Math.round(seconds / 60)} minutes`
+  const h = Math.floor(seconds / 3600)
+  const m = Math.round((seconds % 3600) / 60)
+  return m ? `${h}h ${m}m` : `${h}h`
+}
 
 export default function Chat() {
   const [messages, setMessages] = useState([])
@@ -44,13 +55,18 @@ export default function Chat() {
       setMessages([
         {
           role: 'assistant',
-          text: `Got it — **${file.name}** (${video.duration ? Math.round(video.duration / 60) + ' min' : 'processing'}, ${video.resolution || 'detecting'}). What kind of clips do you want?\n\nTry something like "Give me 4 funny TikTok clips under 30 seconds"`,
-        }
+          text: `${file.name} is in — ${fmtLength(video.duration)}, ${
+            video.resolution || 'detecting resolution'
+          }.\n\nTell me what you're after. A length, a format, a feeling — "3 funny clips under 30 seconds for TikTok" works, and so does "the part where it gets tense, square".`,
+        },
       ])
     } catch (err) {
-      setMessages(prev => [
+      setMessages((prev) => [
         ...prev,
-        { role: 'assistant', text: `Upload failed: ${err.response?.data?.detail || err.message}. Try again.` }
+        {
+          role: 'assistant',
+          text: `Upload failed: ${err.response?.data?.detail || err.message}`,
+        },
       ])
     } finally {
       setUploading(false)
@@ -63,7 +79,7 @@ export default function Chat() {
     if (!text || sending) return
 
     setInput('')
-    setMessages(prev => [...prev, { role: 'user', text }])
+    setMessages((prev) => [...prev, { role: 'user', text }])
     setSending(true)
     setLiveProgress({ chunks: 0, momentCount: 0 })
     setLiveClips([])
@@ -71,17 +87,19 @@ export default function Chat() {
     if (videoId) {
       streamRef.current?.close()
       streamRef.current = openPipelineStream(videoId, {
-        onChunk: (data) => setLiveProgress(p => ({
-          ...(p || {}),
-          chunks: (p?.chunks || 0) + 1,
-          lastChunkMoments: data.moment_count,
-        })),
-        onMoments: (data) => setLiveProgress(p => ({
-          ...(p || {}),
-          momentCount: data.moments?.length || 0,
-        })),
-        onClipReady: (data) => setLiveClips(prev => [...prev, data.clip]),
-        onDone: () => { /* stream closes itself */ },
+        onChunk: (data) =>
+          setLiveProgress((p) => ({
+            ...(p || {}),
+            chunks: (p?.chunks || 0) + 1,
+            lastChunkMoments: data.moment_count,
+          })),
+        onMoments: (data) =>
+          setLiveProgress((p) => ({
+            ...(p || {}),
+            momentCount: data.moments?.length || 0,
+          })),
+        onClipReady: (data) => setLiveClips((prev) => [...prev, data.clip]),
+        onDone: () => {},
         onError: () => streamRef.current?.close(),
       })
     }
@@ -89,7 +107,7 @@ export default function Chat() {
     try {
       const res = await sendChatMessage(text, videoId)
       const data = res.data
-      setMessages(prev => [
+      setMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
@@ -97,15 +115,15 @@ export default function Chat() {
           clips: data.clips,
           intent: data.intent,
           moment_count: data.moment_count,
-        }
+        },
       ])
     } catch (err) {
-      setMessages(prev => [
+      setMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
-          text: `Something went wrong: ${err.response?.data?.detail || err.message}. Try again.`,
-        }
+          text: `Something went wrong: ${err.response?.data?.detail || err.message}`,
+        },
       ])
     } finally {
       setSending(false)
@@ -126,25 +144,33 @@ export default function Chat() {
     }
   }
 
-  const handlePromptSelect = (prompt) => {
-    setInput(prompt)
-    setTimeout(() => handleSend(prompt), 50)
-  }
-
   return (
-    <div className="flex flex-col h-screen bg-bg">
+    <div className="grain relative flex h-dvh flex-col bg-obsidian">
       {/* Header */}
-      <header className="border-b border-gray-800 px-6 py-4 flex items-center gap-3 shrink-0">
-        <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-purple-600 to-cyan-500 flex items-center justify-center">
-          <Sparkles size={18} />
-        </div>
-        <div>
-          <h1 className="text-lg font-semibold">AutoClip AI</h1>
-          <p className="text-xs text-gray-400">Multimodal video clipping</p>
+      <header className="hairline flex shrink-0 items-center gap-4 border-t-0 px-6 py-3.5">
+        <Link
+          to="/"
+          className="grid h-8 w-8 place-items-center rounded-lg border border-white/8 text-platinum-muted transition-colors duration-300 hover:border-white/20 hover:text-platinum"
+          aria-label="Back to home"
+        >
+          <ArrowLeft size={14} aria-hidden="true" />
+        </Link>
+
+        <div className="flex items-center gap-2.5">
+          <span className="grid h-8 w-8 place-items-center rounded-lg border border-gold-700/60 bg-obsidian-800">
+            <Scissors size={14} className="text-gold" aria-hidden="true" />
+          </span>
+          <div>
+            <h1 className="font-display text-base leading-none tracking-tight">
+              AutoClip<span className="text-gold">.</span>
+            </h1>
+            <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-platinum-dim">
+              Studio
+            </p>
+          </div>
         </div>
       </header>
 
-      {/* Video context bar */}
       {videoId && (
         <VideoBar
           videoName={videoName}
@@ -154,7 +180,6 @@ export default function Chat() {
         />
       )}
 
-      {/* Main content */}
       {!videoId ? (
         <HeroSection
           onUpload={handleUpload}
@@ -163,46 +188,55 @@ export default function Chat() {
         />
       ) : (
         <>
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-            <AnimatePresence>
-              {messages.map((msg, i) => (
-                <ChatMessage key={i} msg={msg} />
-              ))}
-            </AnimatePresence>
+          <div className="flex-1 overflow-y-auto px-6 py-6">
+            <div className="mx-auto max-w-4xl space-y-6">
+              <AnimatePresence initial={false}>
+                {messages.map((msg, i) => (
+                  <ChatMessage key={i} msg={msg} />
+                ))}
+              </AnimatePresence>
 
-            {sending && <ProcessingIndicator progress={liveProgress} liveClips={liveClips} />}
+              {sending && (
+                <ProcessingIndicator progress={liveProgress} liveClips={liveClips} />
+              )}
 
-            <div ref={messagesEndRef} />
+              <div ref={messagesEndRef} />
+            </div>
           </div>
 
-          {/* Input bar */}
-          <div className="border-t border-gray-800 px-6 py-3 shrink-0">
-            <div className="max-w-3xl mx-auto">
+          {/* Composer */}
+          <div className="hairline shrink-0 px-6 py-4">
+            <div className="mx-auto max-w-4xl">
               <SuggestedPrompts
-                onSelect={handlePromptSelect}
+                onSelect={(p) => { setInput(p); setTimeout(() => handleSend(p), 40) }}
                 visible={!sending && messages.length < 3}
               />
 
-              <div className="flex items-center bg-gray-800/80 border border-gray-700/50 rounded-xl px-4 focus-within:border-purple-500/50 transition-colors">
+              <div className="glass flex items-center gap-2 rounded-2xl px-4 py-1.5 transition-colors duration-300 ease-lux focus-within:border-gold-700/60">
+                <label htmlFor="composer" className="sr-only">
+                  Describe the clips you want
+                </label>
                 <input
+                  id="composer"
                   ref={inputRef}
                   value={input}
-                  onChange={e => setInput(e.target.value)}
+                  onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder='Ask for clips... e.g. "4 funny TikToks under 30s"'
+                  placeholder="Ask for clips — length, format, feeling…"
                   disabled={sending}
-                  className="flex-1 bg-transparent py-3 text-sm outline-none placeholder-gray-500 disabled:opacity-50"
+                  className="flex-1 bg-transparent py-2.5 text-sm text-platinum outline-none placeholder:text-platinum-dim disabled:opacity-50"
                 />
                 <button
+                  type="button"
                   onClick={() => handleSend()}
                   disabled={!input.trim() || sending}
-                  className="ml-2 p-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-30 disabled:hover:bg-purple-600 transition-colors"
+                  aria-label="Send request"
+                  className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gold-sheen bg-[length:200%_auto] text-obsidian transition-all duration-500 ease-lux hover:bg-[position:80%_50%] disabled:cursor-not-allowed disabled:opacity-25"
                 >
                   {sending ? (
-                    <Loader2 size={16} className="animate-spin" />
+                    <Loader2 size={15} className="animate-spin" aria-hidden="true" />
                   ) : (
-                    <Send size={16} />
+                    <Send size={15} aria-hidden="true" />
                   )}
                 </button>
               </div>

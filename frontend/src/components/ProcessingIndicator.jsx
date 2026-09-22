@@ -1,103 +1,49 @@
-import { useState, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Search, Scissors, TrendingUp, Film, Bot, Sparkles } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { Loader2 } from 'lucide-react'
 
-const steps = [
-  { label: 'Transcribing audio', icon: Search, duration: 3000 },
-  { label: 'Analyzing chunks in parallel', icon: Scissors, duration: 4000 },
-  { label: 'Fusing moments', icon: TrendingUp, duration: 2000 },
-  { label: 'Producing clips', icon: Film, duration: 5000 },
-]
-
+/**
+ * Live pipeline progress. Driven by SSE events (chunk_done / moments /
+ * clip_ready) so the user sees work happening during long analysis runs
+ * instead of an unexplained wait.
+ */
 export default function ProcessingIndicator({ progress, liveClips = [] }) {
-  const [currentStep, setCurrentStep] = useState(0)
+  const chunks = progress?.chunks || 0
+  const moments = progress?.momentCount || 0
 
-  useEffect(() => {
-    if (currentStep >= steps.length - 1) return
-    const timer = setTimeout(() => setCurrentStep(p => p + 1), steps[currentStep].duration)
-    return () => clearTimeout(timer)
-  }, [currentStep])
-
-  // Live signals from SSE override the canned step animation
-  const live = progress || {}
-  if (live.chunks && currentStep < 1) setCurrentStep(1)
-  if (live.momentCount && currentStep < 2) setCurrentStep(2)
-  if (liveClips.length && currentStep < 3) setCurrentStep(3)
-
-  const pct = ((currentStep + 1) / steps.length) * 100
-  const StepIcon = steps[currentStep].icon
+  const stage =
+    liveClips.length > 0
+      ? 'Producing clips'
+      : moments > 0
+        ? 'Ranking moments'
+        : chunks > 0
+          ? 'Reading the video'
+          : 'Thinking'
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="flex gap-3"
+      className="flex gap-3.5"
     >
-      <div className="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center shrink-0">
-        <Bot size={16} />
+      <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-gold-700/50 bg-obsidian-800">
+        <Loader2 size={14} className="animate-spin text-gold" aria-hidden="true" />
       </div>
 
-      <div className="bg-gray-800/80 border border-gray-700/50 rounded-2xl px-5 py-4 space-y-3 min-w-[320px]">
-        <div className="flex items-center gap-2">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={currentStep}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.3 }}
-              className="flex items-center gap-2"
-            >
-              <StepIcon size={14} className="text-primary" />
-              <span className="text-sm text-gray-300">{steps[currentStep].label}...</span>
-            </motion.div>
-          </AnimatePresence>
+      <div className="glass min-w-[260px] rounded-2xl px-4 py-3" role="status" aria-live="polite">
+        <p className="text-[13px] text-platinum">{stage}…</p>
+
+        <div className="mt-2.5 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-platinum-dim nums">
+          {chunks > 0 && <span>{chunks} chunks analysed</span>}
+          {moments > 0 && <span>{moments} moments found</span>}
+          {liveClips.length > 0 && <span>{liveClips.length} clips rendered</span>}
         </div>
 
-        {/* Live counters from SSE */}
-        {(live.chunks || live.momentCount || liveClips.length) ? (
-          <div className="flex flex-wrap gap-1.5 text-[11px]">
-            {live.chunks ? (
-              <span className="px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300">
-                {live.chunks} chunk{live.chunks > 1 ? 's' : ''} done
-              </span>
-            ) : null}
-            {live.momentCount ? (
-              <span className="px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300">
-                {live.momentCount} moments
-              </span>
-            ) : null}
-            {liveClips.length ? (
-              <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 inline-flex items-center gap-1">
-                <Sparkles size={10} /> {liveClips.length} clip{liveClips.length > 1 ? 's' : ''}
-              </span>
-            ) : null}
-          </div>
-        ) : null}
-
-        {/* Step dots */}
-        <div className="flex items-center gap-2">
-          {steps.map((_, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <motion.div
-                className={`w-2 h-2 rounded-full ${
-                  i <= currentStep ? 'bg-primary' : 'bg-gray-600'
-                }`}
-                animate={i === currentStep ? { scale: [1, 1.3, 1] } : {}}
-                transition={i === currentStep ? { repeat: Infinity, duration: 1 } : {}}
-              />
-              {i < steps.length - 1 && (
-                <div className={`w-6 h-0.5 ${i < currentStep ? 'bg-primary' : 'bg-gray-700'}`} />
-              )}
-            </div>
-          ))}
-        </div>
-
-        <div className="w-full bg-gray-700 rounded-full h-1">
+        {/* Indeterminate shimmer — duration is genuinely unknown. */}
+        <div className="mt-3 h-0.5 w-full overflow-hidden rounded-full bg-white/8">
           <motion.div
-            className="h-1 rounded-full bg-gradient-to-r from-primary to-accent"
-            animate={{ width: `${pct}%` }}
-            transition={{ duration: 0.5, ease: 'easeOut' }}
+            className="h-full w-1/3 rounded-full bg-gold-sheen bg-[length:200%_auto]"
+            animate={{ x: ['-100%', '300%'] }}
+            transition={{ duration: 1.9, repeat: Infinity, ease: 'easeInOut' }}
           />
         </div>
       </div>

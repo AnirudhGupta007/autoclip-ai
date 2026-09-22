@@ -1,154 +1,180 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Video, Download, ChevronDown } from 'lucide-react'
+import { Play, Download, ChevronDown, Film } from 'lucide-react'
 import ScoreRing from './ScoreRing'
 
-const scoreLabels = ['hook', 'emotion', 'shareability', 'retention', 'controversy', 'novelty']
+const SCORE_KEYS = ['hook', 'emotion', 'shareability', 'retention', 'controversy', 'novelty']
 
-function ScoreBar({ label, value }) {
+function formatTime(seconds) {
+  if (seconds == null) return '0:00'
+  const m = Math.floor(seconds / 60)
+  const s = Math.floor(seconds % 60)
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+function ScoreBar({ label, value = 0 }) {
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-[10px] text-gray-400 w-20 capitalize">{label}</span>
-      <div className="flex-1 bg-gray-700 rounded-full h-1.5">
+    <div className="flex items-center gap-3">
+      <span className="w-[86px] shrink-0 text-[10px] uppercase tracking-wider text-platinum-dim">
+        {label}
+      </span>
+      <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/8">
         <motion.div
-          className="h-1.5 rounded-full bg-gradient-to-r from-primary to-accent"
+          className="h-full rounded-full bg-gold-sheen bg-[length:200%_auto]"
           initial={{ width: 0 }}
           animate={{ width: `${(value || 0) * 10}%` }}
-          transition={{ duration: 0.6, delay: 0.2 }}
+          transition={{ duration: 0.7, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
         />
       </div>
-      <span className="text-[10px] text-gray-400 w-6 text-right">{value?.toFixed(1)}</span>
+      <span className="w-6 text-right text-[10px] text-platinum-muted nums">
+        {value?.toFixed(1)}
+      </span>
     </div>
   )
 }
 
 export default function ClipCard({ clip, index }) {
-  const [showVideo, setShowVideo] = useState(false)
+  const [playing, setPlaying] = useState(false)
   const [expanded, setExpanded] = useState(false)
 
+  // Vertical formats get a portrait preview; 16:9 stays landscape.
+  const vertical = (clip.frame || '9:16') === '9:16'
+  const square = clip.frame === '1:1'
+  const aspect = vertical ? 'aspect-[9/16]' : square ? 'aspect-square' : 'aspect-video'
+
   return (
-    <motion.div
+    <motion.article
       layout
-      initial={{ opacity: 0, scale: 0.9, y: 20 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      transition={{ delay: index * 0.1, type: 'spring', stiffness: 200, damping: 20 }}
-      whileHover={{ scale: 1.02 }}
-      className="bg-gray-800/60 rounded-xl border border-gray-700/50 overflow-hidden hover:border-primary/30 transition-colors"
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.07, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+      className="glass group overflow-hidden rounded-2xl transition-colors duration-500 ease-lux hover:border-gold-700/50"
     >
-      {/* Thumbnail / Video */}
-      <div
-        className="relative aspect-video bg-gray-900 cursor-pointer group"
-        onClick={() => setShowVideo(!showVideo)}
-      >
-        {showVideo && clip.file_url ? (
+      {/* Preview */}
+      <div className={`relative ${aspect} bg-obsidian-900`}>
+        {playing && clip.file_url ? (
           <video
             src={clip.file_url}
             controls
             autoPlay
-            className="w-full h-full object-contain"
+            className="h-full w-full object-contain"
+            aria-label={clip.title || `Clip ${index}`}
           />
-        ) : clip.thumbnail_url ? (
-          <>
-            <img src={clip.thumbnail_url} alt={clip.title} className="w-full h-full object-cover" />
-            <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity">
-              <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur flex items-center justify-center">
-                <Video size={20} />
-              </div>
-            </div>
-          </>
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-gray-500">
-            <Video size={32} />
-          </div>
+          <button
+            type="button"
+            onClick={() => setPlaying(true)}
+            className="group/play absolute inset-0 h-full w-full cursor-pointer"
+            aria-label={`Play ${clip.title || `clip ${index}`}`}
+          >
+            {clip.thumbnail_url ? (
+              <img
+                src={clip.thumbnail_url}
+                alt=""
+                loading="lazy"
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <span className="grid h-full w-full place-items-center text-platinum-dim">
+                <Film size={26} aria-hidden="true" />
+              </span>
+            )}
+            <span className="absolute inset-0 bg-gradient-to-t from-obsidian/90 via-transparent to-obsidian/30" />
+            <span className="absolute inset-0 grid place-items-center opacity-0 transition-opacity duration-300 ease-lux group-hover/play:opacity-100">
+              <span className="grid h-12 w-12 place-items-center rounded-full border border-gold-700/60 bg-obsidian/70 backdrop-blur-sm">
+                <Play size={16} className="ml-0.5 text-gold" aria-hidden="true" />
+              </span>
+            </span>
+          </button>
         )}
 
-        {/* Duration badge */}
-        <span className="absolute bottom-2 right-2 bg-black/70 text-xs px-2 py-0.5 rounded">
-          {clip.duration?.toFixed(0)}s
+        {/* Rank */}
+        <span className="pointer-events-none absolute left-2.5 top-2.5 rounded-md border border-white/10 bg-obsidian/80 px-2 py-0.5 font-display text-xs text-gold backdrop-blur-sm nums">
+          {String(index).padStart(2, '0')}
         </span>
 
-        {/* Index badge */}
-        <span className="absolute top-2 left-2 bg-purple-600 text-xs px-2 py-0.5 rounded font-bold">
-          #{index}
-        </span>
-
-        {/* Score ring */}
-        {clip.overall_score && (
-          <div className="absolute top-2 right-2">
+        {/* Score */}
+        {clip.overall_score != null && (
+          <div className="pointer-events-none absolute right-2.5 top-2.5">
             <ScoreRing score={clip.overall_score} />
           </div>
         )}
+
+        {/* Duration */}
+        <span className="pointer-events-none absolute bottom-2.5 right-2.5 rounded-md bg-obsidian/80 px-2 py-0.5 text-[10px] text-platinum backdrop-blur-sm nums">
+          {clip.duration?.toFixed(1)}s
+        </span>
       </div>
 
-      {/* Info */}
-      <div
-        className="p-3 cursor-pointer"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <div className="flex items-center justify-between">
-          <h4 className="text-sm font-medium truncate flex-1">{clip.title || `Clip ${index}`}</h4>
-          <motion.div
-            animate={{ rotate: expanded ? 180 : 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            <ChevronDown size={14} className="text-gray-400" />
-          </motion.div>
-        </div>
+      {/* Meta */}
+      <div className="p-4">
+        <h4 className="mb-2.5 font-display text-[15px] leading-snug text-platinum">
+          {clip.title || `Clip ${index}`}
+        </h4>
 
-        <div className="flex items-center gap-1 mt-2 flex-wrap">
-          {clip.style_tags?.slice(0, 2).map(tag => (
-            <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-purple-600/20 text-purple-300">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="rounded border border-gold-700/40 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-gold-400 nums">
+            {clip.frame || '9:16'}
+          </span>
+          {clip.style_tags?.slice(0, 2).map((tag) => (
+            <span
+              key={tag}
+              className="rounded border border-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-platinum-dim"
+            >
               {tag}
             </span>
           ))}
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-600/20 text-cyan-300">
-            {clip.frame || '9:16'}
-          </span>
+          {clip.start_time != null && (
+            <span className="ml-auto text-[10px] text-platinum-dim nums">
+              {formatTime(clip.start_time)}–{formatTime(clip.end_time)}
+            </span>
+          )}
         </div>
 
-        {/* Expanded details */}
-        <AnimatePresence>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className="mt-3 flex w-full items-center justify-between rounded-lg px-1 py-1.5 text-[11px] uppercase tracking-[0.18em] text-platinum-dim transition-colors duration-200 hover:text-platinum-muted"
+        >
+          {expanded ? 'Hide detail' : 'Scores & transcript'}
+          <motion.span animate={{ rotate: expanded ? 180 : 0 }} transition={{ duration: 0.25 }}>
+            <ChevronDown size={14} aria-hidden="true" />
+          </motion.span>
+        </button>
+
+        <AnimatePresence initial={false}>
           {expanded && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.3 }}
+              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
               className="overflow-hidden"
             >
-              <div className="pt-3 mt-3 border-t border-gray-700/50 space-y-3">
-                {/* Score breakdown */}
+              <div className="hairline mt-3 space-y-4 pt-4">
                 {clip.scores && (
-                  <div className="space-y-1.5">
-                    {scoreLabels.map(key => (
-                      <ScoreBar key={key} label={key} value={clip.scores[key]} />
+                  <div className="space-y-2">
+                    {SCORE_KEYS.map((k) => (
+                      <ScoreBar key={k} label={k} value={clip.scores[k]} />
                     ))}
                   </div>
                 )}
 
-                {/* Transcript preview */}
                 {clip.transcript && (
-                  <p className="text-xs text-gray-400 italic line-clamp-3">
-                    "{clip.transcript.slice(0, 150)}{clip.transcript.length > 150 ? '...' : ''}"
-                  </p>
+                  <blockquote className="border-l border-gold-700/50 pl-3 text-xs italic leading-relaxed text-platinum-muted">
+                    {clip.transcript.slice(0, 180)}
+                    {clip.transcript.length > 180 ? '…' : ''}
+                  </blockquote>
                 )}
 
-                {/* Time range */}
-                {clip.start_time != null && (
-                  <p className="text-[10px] text-gray-500">
-                    {formatTime(clip.start_time)} — {formatTime(clip.end_time)}
-                  </p>
-                )}
-
-                {/* Download button */}
                 {clip.file_url && (
                   <a
                     href={clip.file_url}
                     download
-                    onClick={e => e.stopPropagation()}
-                    className="flex items-center justify-center gap-1.5 w-full px-3 py-2 bg-primary/20 hover:bg-primary/30 text-primary rounded-lg text-xs font-medium transition-colors"
+                    className="flex items-center justify-center gap-2 rounded-lg border border-gold-700/50 bg-gold/10 px-3 py-2.5 text-xs text-gold-300 transition-all duration-300 ease-lux hover:bg-gold/15 hover:shadow-gold"
                   >
-                    <Download size={13} />
+                    <Download size={13} aria-hidden="true" />
                     Download clip
                   </a>
                 )}
@@ -157,13 +183,6 @@ export default function ClipCard({ clip, index }) {
           )}
         </AnimatePresence>
       </div>
-    </motion.div>
+    </motion.article>
   )
-}
-
-function formatTime(seconds) {
-  if (seconds == null) return '0:00'
-  const m = Math.floor(seconds / 60)
-  const s = Math.floor(seconds % 60)
-  return `${m}:${s.toString().padStart(2, '0')}`
 }

@@ -1,49 +1,47 @@
-import { motion } from 'framer-motion'
-import { Film, Clock, Monitor, Upload } from 'lucide-react'
+import { useRef } from 'react'
+import { Film, RotateCcw } from 'lucide-react'
 
-function formatDuration(seconds) {
-  if (!seconds) return null
-  const m = Math.floor(seconds / 60)
-  const s = Math.floor(seconds % 60)
-  return `${m}:${s.toString().padStart(2, '0')}`
+function fmtDuration(s) {
+  if (!s) return '—'
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = Math.floor(s % 60)
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+    : `${m}:${String(sec).padStart(2, '0')}`
 }
 
 export default function VideoBar({ videoName, videoDuration, videoResolution, onNewUpload }) {
+  const inputRef = useRef(null)
+
   return (
-    <motion.div
-      initial={{ y: -20, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      className="px-6 py-2.5 bg-surface/80 backdrop-blur-sm border-b border-gray-800 flex items-center gap-3"
-    >
-      <Film size={14} className="text-primary shrink-0" />
-      <span className="text-sm text-gray-200 truncate max-w-[200px]">{videoName}</span>
+    <div className="hairline flex shrink-0 items-center gap-3 px-6 py-3">
+      <span className="grid h-8 w-8 place-items-center rounded-lg border border-white/8 bg-white/[0.03]">
+        <Film size={14} className="text-gold" aria-hidden="true" />
+      </span>
 
-      {videoDuration && (
-        <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-primary/20 text-purple-300">
-          <Clock size={10} />
-          {formatDuration(videoDuration)}
-        </span>
-      )}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[13px] text-platinum">{videoName || 'Untitled'}</p>
+        <p className="text-[11px] text-platinum-dim nums">
+          {fmtDuration(videoDuration)} · {videoResolution || 'detecting'}
+        </p>
+      </div>
 
-      {videoResolution && (
-        <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-accent/20 text-cyan-300">
-          <Monitor size={10} />
-          {videoResolution}
-        </span>
-      )}
-
-      <div className="flex-1" />
-
-      <label className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white cursor-pointer transition-colors">
-        <Upload size={12} />
+      <input
+        ref={inputRef}
+        type="file"
+        accept="video/*"
+        className="hidden"
+        onChange={(e) => e.target.files?.[0] && onNewUpload(e.target.files[0])}
+      />
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        className="inline-flex items-center gap-2 rounded-full border border-white/10 px-3.5 py-1.5 text-xs text-platinum-muted transition-all duration-300 ease-lux hover:border-gold-700/50 hover:text-platinum"
+      >
+        <RotateCcw size={12} aria-hidden="true" />
         New video
-        <input
-          type="file"
-          accept="video/*"
-          className="hidden"
-          onChange={e => e.target.files?.[0] && onNewUpload(e.target.files[0])}
-        />
-      </label>
-    </motion.div>
+      </button>
+    </div>
   )
 }

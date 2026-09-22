@@ -1,72 +1,36 @@
 import { motion } from 'framer-motion'
-import { Sparkles, Video, MessageSquare } from 'lucide-react'
 import UploadZone from './UploadZone'
-
-const features = [
-  { label: 'AI-Powered Analysis', icon: Sparkles },
-  { label: 'Multi-Modal Detection', icon: Video },
-  { label: 'One Conversation', icon: MessageSquare },
-]
 
 export default function HeroSection({ onUpload, uploading, uploadProgress }) {
   return (
-    <div className="flex-1 flex items-center justify-center px-6">
-      <div className="max-w-xl w-full text-center space-y-8">
-        {/* Gradient glow background */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] rounded-full bg-gradient-to-br from-primary/20 to-accent/20 blur-[120px] animate-gradient" />
-        </div>
-
-        {/* Heading */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-          className="relative space-y-3"
-        >
-          <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-white via-purple-200 to-accent bg-clip-text text-transparent leading-tight">
-            Turn long videos into viral clips
-          </h1>
-          <p className="text-gray-400 text-lg">
-            Upload a video, describe what you want, and let AI do the rest.
-          </p>
-        </motion.div>
-
-        {/* Feature pills */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.3 }}
-          className="flex flex-wrap justify-center gap-3 relative"
-        >
-          {features.map((f, i) => (
-            <motion.div
-              key={f.label}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4 + i * 0.15 }}
-              className="flex items-center gap-2 px-4 py-2 rounded-full bg-surface border border-gray-700/50 text-sm text-gray-300"
-            >
-              <f.icon size={14} className="text-primary" />
-              {f.label}
-            </motion.div>
-          ))}
-        </motion.div>
-
-        {/* Upload zone */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.6, duration: 0.5 }}
-          className="relative"
-        >
-          <UploadZone
-            onUpload={onUpload}
-            uploading={uploading}
-            uploadProgress={uploadProgress}
-          />
-        </motion.div>
+    <div className="relative flex flex-1 items-center justify-center overflow-y-auto px-6 py-14">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10">
+        <div className="absolute left-1/2 top-1/4 h-[420px] w-[680px] -translate-x-1/2 animate-drift rounded-full bg-[radial-gradient(closest-side,rgba(212,175,122,0.14),transparent)] blur-2xl" />
       </div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 18 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+        className="w-full max-w-xl text-center"
+      >
+        <p className="mb-5 text-[11px] uppercase tracking-[0.3em] text-gold-600">
+          The Studio
+        </p>
+        <h2 className="mb-4 font-display text-display-md text-platinum">
+          Start with the <span className="italic text-gold-400">long cut.</span>
+        </h2>
+        <p className="mx-auto mb-10 max-w-md text-sm leading-relaxed text-platinum-muted">
+          Upload once. Every clip you ask for afterwards reuses the same
+          analysis — no re-processing, no waiting twice.
+        </p>
+
+        <UploadZone
+          onUpload={onUpload}
+          uploading={uploading}
+          uploadProgress={uploadProgress}
+        />
+      </motion.div>
     </div>
   )
 }
