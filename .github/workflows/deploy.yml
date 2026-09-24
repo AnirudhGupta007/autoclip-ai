@@ -1,39 +1,107 @@
-name: Deploy AutoClip AI
+name: CI / Deploy
+
+# CI on every push and PR; deploy to the EC2 box on master once CI passes.
+# Deploys go through AWS SSM Run Command, authenticated with GitHub OIDC —
+# no SSH port opened to runners and no long-lived AWS keys in GitHub.
 
 on:
   push:
     branches: [master]
+  pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  INSTANCE_ID: i-003f17bac937f8a12
+  SITE_URL: https://15.206.112.113
+
 jobs:
-  sanity:
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  backend:
+    name: Backend compile check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Compile-check Python sources
-        run: |
-          python3 -c "
-          import ast, pathlib, sys
-          errs = 0
-          for p in pathlib.Path('backend/src').rglob('*.py'):
-              try: ast.parse(p.read_text())
-              except SyntaxError as e: print('SYNTAX', p, e); errs += 1
-          sys.exit(errs)
-          "
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m compileall -q backend/src
 
   deploy:
-    needs: sanity
+    name: Deploy to EC2
+    needs: [frontend, backend]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/master'
+    permissions:
+      id-token: write   # OIDC token for AWS
+      contents: read
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false   # never kill a deploy halfway through a build
     steps:
-      - name: Deploy to EC2
-        uses: appleboy/ssh-action@v1.0.3
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            cd /home/ubuntu/autoclip-ai
-            git pull origin master
-            docker compose up -d --build
-            docker image prune -f
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Pull, rebuild and restart via SSM
+        run: |
+          # Pin the server to exactly the commit that passed CI. The prod overlay
+          # keeps HTTPS; ignored files (.env, certs/) are untouched by reset.
+          jq -n --arg sha "$GITHUB_SHA" '{commands: [
+            "set -eu",
+            "cd /opt/autoclip",
+            "sudo -u ubuntu git fetch -q origin master",
+            "sudo -u ubuntu git reset -q --hard \($sha)",
+            "docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --remove-orphans",
+            "docker image prune -f",
+            "docker compose ps --format \"table {{.Service}}\\t{{.Status}}\""
+          ], executionTimeout: ["1800"]}' > params.json
+
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "deploy ${GITHUB_SHA::7}" \
+            --parameters file://params.json \
+            --query Command.CommandId --output text)
+          echo "SSM command: $CMD_ID"
+
+          # `aws ssm wait` gives up after ~100s; docker builds take longer
+          for i in $(seq 1 180); do
+            STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+              --query Status --output text 2>/dev/null || echo Pending)
+            case "$STATUS" in Pending|InProgress|Delayed) sleep 10 ;; *) break ;; esac
+          done
+
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query StandardOutputContent --output text | tail -40
+          echo "--- stderr (tail) ---"
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query StandardErrorContent --output text | tail -20
+
+          echo "Final status: $STATUS"
+          [ "$STATUS" = "Success" ]
+
+      - name: Smoke test the live site
+        run: |
+          curl -fsS --retry 10 --retry-delay 6 --retry-all-errors "$SITE_URL/api/health"
+          echo
+          curl -fsS -o /dev/null -w "landing page: %{http_code}\n" "$SITE_URL/"
