@@ -41,3 +41,7 @@ htmlcov/
 
 # Misc
 *.log
+
+# production TLS (host-managed)
+certs/
+acme-www/

@@ -1,0 +1,13 @@
+# Production overlay: HTTPS for the public server.
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Certs live on the host (see DEPLOY.md, "HTTPS"); acme.sh renews them and
+# reloads nginx in place.
+services:
+  frontend:
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./frontend/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+      - ./acme-www:/var/www/acme:ro
