@@ -200,3 +200,32 @@ while it runs.
   once against the instance.
 - **No GPU required.** All inference is remote via OpenRouter; workers only need
   CPU for ffmpeg. That is what keeps this cheap.
+
+## HTTPS without a domain (Let's Encrypt IP certificate)
+
+The public server runs with the production overlay, which serves HTTPS on
+443 and uses port 80 only for ACME challenges and a redirect:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
+
+Certificates are Let's Encrypt **IP address** certs (`shortlived` profile,
+~6.5-day lifetime), issued and renewed on the host by acme.sh:
+
+```bash
+mkdir -p certs acme-www
+# bootstrap: nginx needs *a* cert to start, so begin with a throwaway self-signed one
+openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=<ip>" \
+  -keyout certs/key.pem -out certs/fullchain.pem
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d frontend
+
+acme.sh --set-default-ca --server letsencrypt
+acme.sh --issue -d <ip> -w "$PWD/acme-www" --cert-profile shortlived --days 3
+acme.sh --install-cert -d <ip> \
+  --key-file "$PWD/certs/key.pem" --fullchain-file "$PWD/certs/fullchain.pem" \
+  --reloadcmd "docker exec autoclip-frontend-1 nginx -s reload"
+```
+
+acme.sh's cron renews every 3 days and reloads nginx in place (no downtime).
+When a domain is added later, re-issue for the domain the same way.
