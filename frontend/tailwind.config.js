@@ -10,7 +10,7 @@ export default {
         // Obsidian base — layered, never pure black (pure black kills depth
         // on OLED and makes glass surfaces read as flat cut-outs).
         obsidian: {
-          DEFAULT: '#07070A',
+          DEFAULT: '#000000',
           900: '#0B0B10',
           800: '#121218',
           700: '#191922',
@@ -33,19 +33,19 @@ export default {
         },
         platinum: {
           DEFAULT: '#F5F3EF',
-          muted: '#A8A296',
-          dim: '#6E6A62',
+          muted: '#D2CDC4',
+          dim: '#9C978E',
         },
       },
       fontFamily: {
-        display: ['"Bodoni Moda"', 'Georgia', 'serif'],
-        sans: ['Jost', 'Inter', 'system-ui', 'sans-serif'],
+        display: ['"Plus Jakarta Sans"', 'Inter', 'system-ui', 'sans-serif'],
+        sans: ['Inter', 'system-ui', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
       },
       fontSize: {
         // Fluid display sizes — no layout jump between breakpoints.
-        'display-xl': ['clamp(2.75rem, 7vw, 6.5rem)', { lineHeight: '0.95', letterSpacing: '-0.02em' }],
-        'display-lg': ['clamp(2rem, 4.5vw, 3.75rem)', { lineHeight: '1.05', letterSpacing: '-0.015em' }],
+        'display-xl': ['clamp(2.5rem, 6.4vw, 6rem)', { lineHeight: '1.02', letterSpacing: '-0.035em' }],
+        'display-lg': ['clamp(1.9rem, 4.2vw, 3.5rem)', { lineHeight: '1.1', letterSpacing: '-0.03em' }],
         'display-md': ['clamp(1.5rem, 3vw, 2.25rem)', { lineHeight: '1.15' }],
       },
       spacing: {
@@ -63,7 +63,7 @@ export default {
       },
       backgroundImage: {
         'gold-sheen': 'linear-gradient(103deg, #8C6A3F 0%, #EBD6B3 38%, #D4AF7A 52%, #8C6A3F 100%)',
-        'obsidian-fade': 'linear-gradient(180deg, rgba(7,7,10,0) 0%, #07070A 85%)',
+        'obsidian-fade': 'linear-gradient(180deg, rgba(0,0,0,0) 0%, #000000 85%)',
       },
       transitionTimingFunction: {
         // One easing token everywhere, so motion feels like one system.

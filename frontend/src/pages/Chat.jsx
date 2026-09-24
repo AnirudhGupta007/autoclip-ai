@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
-import { Send, Loader2, Scissors, ArrowLeft } from 'lucide-react'
-import { uploadVideo, sendChatMessage, openPipelineStream } from '../services/api'
+import { Send, Loader2, Scissors, ArrowLeft, Github } from 'lucide-react'
+import { uploadVideo, sendChatMessage, openPipelineStream, getQuota } from '../services/api'
+
+const REPO_URL = 'https://github.com/AnirudhGupta007/autoclip-ai'
 import HeroSection from '../components/HeroSection'
 import VideoBar from '../components/VideoBar'
 import ChatMessage from '../components/ChatMessage'
@@ -31,10 +33,17 @@ export default function Chat() {
   const [sending, setSending] = useState(false)
   const [liveProgress, setLiveProgress] = useState(null)
   const [liveClips, setLiveClips] = useState([])
+  const [quota, setQuota] = useState(null) // { limit, remaining }
 
   const messagesEndRef = useRef(null)
   const inputRef = useRef(null)
   const streamRef = useRef(null)
+
+  useEffect(() => {
+    getQuota().then((res) => setQuota(res.data)).catch(() => {})
+  }, [])
+
+  const outOfQueries = quota?.remaining === 0
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -76,7 +85,7 @@ export default function Chat() {
 
   const handleSend = async (text) => {
     text = (text || input).trim()
-    if (!text || sending) return
+    if (!text || sending || outOfQueries) return
 
     setInput('')
     setMessages((prev) => [...prev, { role: 'user', text }])
@@ -107,6 +116,9 @@ export default function Chat() {
     try {
       const res = await sendChatMessage(text, videoId)
       const data = res.data
+      if (data.queries_remaining != null) {
+        setQuota((q) => ({ ...(q || {}), remaining: data.queries_remaining }))
+      }
       setMessages((prev) => [
         ...prev,
         {
@@ -118,11 +130,15 @@ export default function Chat() {
         },
       ])
     } catch (err) {
+      const limited = err.response?.status === 429
+      if (limited) setQuota((q) => ({ ...(q || {}), remaining: 0 }))
       setMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
-          text: `Something went wrong: ${err.response?.data?.detail || err.message}`,
+          text: limited
+            ? err.response.data.detail
+            : `Something went wrong: ${err.response?.data?.detail || err.message}`,
         },
       ])
     } finally {
@@ -145,7 +161,7 @@ export default function Chat() {
   }
 
   return (
-    <div className="grain relative flex h-dvh flex-col bg-obsidian">
+    <div className="relative flex h-dvh flex-col bg-obsidian">
       {/* Header */}
       <header className="hairline flex shrink-0 items-center gap-4 border-t-0 px-6 py-3.5">
         <Link
@@ -168,6 +184,27 @@ export default function Chat() {
               Studio
             </p>
           </div>
+        </div>
+
+        <div className="ml-auto flex items-center gap-3">
+          {quota && (
+            <span
+              className={`rounded-full border px-3 py-1 text-xs nums ${
+                outOfQueries ? 'border-oxblood-400/50 text-oxblood-400' : 'border-gold-700/50 text-gold-300'
+              }`}
+            >
+              {quota.remaining} of {quota.limit} queries left today
+            </span>
+          )}
+          <a
+            href={REPO_URL}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Source on GitHub"
+            className="grid h-8 w-8 place-items-center rounded-lg border border-white/10 text-platinum-muted transition-colors duration-300 hover:border-white/25 hover:text-platinum"
+          >
+            <Github size={15} aria-hidden="true" />
+          </a>
         </div>
       </header>
 
@@ -209,7 +246,7 @@ export default function Chat() {
             <div className="mx-auto max-w-4xl">
               <SuggestedPrompts
                 onSelect={(p) => { setInput(p); setTimeout(() => handleSend(p), 40) }}
-                visible={!sending && messages.length < 3}
+                visible={!sending && !outOfQueries && messages.length < 3}
               />
 
               <div className="glass flex items-center gap-2 rounded-2xl px-4 py-1.5 transition-colors duration-300 ease-lux focus-within:border-gold-700/60">
@@ -222,14 +259,18 @@ export default function Chat() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Ask for clips — length, format, feeling…"
-                  disabled={sending}
+                  placeholder={
+                    outOfQueries
+                      ? 'Daily limit reached. Come back tomorrow for 2 more queries.'
+                      : 'Ask for clips — length, format, feeling…'
+                  }
+                  disabled={sending || outOfQueries}
                   className="flex-1 bg-transparent py-2.5 text-sm text-platinum outline-none placeholder:text-platinum-dim disabled:opacity-50"
                 />
                 <button
                   type="button"
                   onClick={() => handleSend()}
-                  disabled={!input.trim() || sending}
+                  disabled={!input.trim() || sending || outOfQueries}
                   aria-label="Send request"
                   className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gold-sheen bg-[length:200%_auto] text-obsidian transition-all duration-500 ease-lux hover:bg-[position:80%_50%] disabled:cursor-not-allowed disabled:opacity-25"
                 >

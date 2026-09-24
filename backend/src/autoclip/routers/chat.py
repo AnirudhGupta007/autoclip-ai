@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import asyncio
 import logging
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 from typing import Optional
 from sse_starlette.sse import EventSourceResponse
@@ -20,6 +20,8 @@ from autoclip.services import events as pipeline_events
 from autoclip.database import SessionLocal
 from autoclip.models import Video
 from autoclip.agent.orchestrator import orchestrator
+from autoclip.config import DAILY_QUERY_LIMIT
+from autoclip.services import rate_limit
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -36,6 +38,7 @@ class ChatResponse(BaseModel):
     clips: Optional[list[dict]] = None
     moment_count: Optional[int] = None
     is_processing: bool = False
+    queries_remaining: Optional[int] = None
 
 
 def _extract_clips_from_run(result: dict) -> list[dict]:
@@ -64,11 +67,20 @@ def _final_text(result: dict) -> str:
     return "I couldn't come up with a reply — try rephrasing your request."
 
 
+@router.get("/quota")
+async def chat_quota(request: Request):
+    """How many agent runs this visitor has left today."""
+    return {
+        "limit": DAILY_QUERY_LIMIT,
+        "remaining": rate_limit.remaining(rate_limit.client_ip(request)),
+        "resets_in_seconds": rate_limit.seconds_until_reset(),
+    }
+
+
 @router.post("/message", response_model=ChatResponse)
-async def chat_message(msg: ChatMessage):
+async def chat_message(msg: ChatMessage, request: Request, response: Response):
     """Process a chat message via the deep-agent orchestrator and return a
-    response. Same request/response JSON shape as before, so the frontend
-    (Chat.jsx / api.js) needs no changes."""
+    response. Each call spends one of the visitor's daily queries."""
     video_id = msg.video_id
     message = msg.message.strip()
 
@@ -84,6 +96,23 @@ async def chat_message(msg: ChatMessage):
         finally:
             db.close()
 
+    # Only charge the quota once the request is valid and about to hit the models
+    ip = rate_limit.client_ip(request)
+    allowed, left, reason = rate_limit.try_consume(ip)
+    if not allowed:
+        hours = max(1, round(rate_limit.seconds_until_reset() / 3600))
+        detail = (
+            f"You've used your {DAILY_QUERY_LIMIT} free queries for today. They reset in about {hours}h."
+            if reason == "user"
+            else "The demo has hit its daily limit. Please try again tomorrow."
+        )
+        raise HTTPException(
+            status_code=429,
+            detail=detail,
+            headers={"Retry-After": str(rate_limit.seconds_until_reset()), "X-Queries-Remaining": "0"},
+        )
+    response.headers["X-Queries-Remaining"] = str(left)
+
     run_config = {"configurable": {"thread_id": video_id or "no-video"}}
     context_message = (
         f"[current video_id: {video_id}]\n{message}" if video_id
@@ -98,7 +127,11 @@ async def chat_message(msg: ChatMessage):
         )
     except Exception as e:
         logger.exception("orchestrator run failed")
-        return ChatResponse(response=f"Something went wrong: {e}. Try again.")
+        rate_limit.refund(ip)  # our failure, not the visitor's — don't charge them
+        return ChatResponse(
+            response=f"Something went wrong: {e}. Try again.",
+            queries_remaining=rate_limit.remaining(ip),
+        )
 
     clips = _extract_clips_from_run(result)
     response_text = _final_text(result)
@@ -113,6 +146,7 @@ async def chat_message(msg: ChatMessage):
         response=response_text,
         clips=clips or None,
         moment_count=moment_count,
+        queries_remaining=left,
     )
 
 

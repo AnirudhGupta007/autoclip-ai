@@ -37,6 +37,8 @@ export const searchMusic = (q, mood) => api.get('/music/search', { params: { q, 
 export const sendChatMessage = (message, videoId) =>
   api.post('/chat/message', { message, video_id: videoId })
 
+export const getQuota = () => api.get('/chat/quota')
+
 export const getAnalysisStatus = (videoId) =>
   api.get(`/chat/analysis/${videoId}`)
 

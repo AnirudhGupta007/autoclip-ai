@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,500;0,6..96,600;1,6..96,400&family=Jost:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,600;1,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -15,10 +15,10 @@
 
   body {
     margin: 0;
-    background-color: #07070A;
+    background-color: #000000;
     color: #F5F3EF;
-    font-family: 'Jost', system-ui, sans-serif;
-    font-weight: 300;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 400;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
@@ -56,7 +56,7 @@
   }
 
   .glass-strong {
-    background: linear-gradient(160deg, rgba(18,18,24,0.92), rgba(11,11,16,0.92));
+    background: rgba(0,0,0,0.82);
     backdrop-filter: blur(28px) saturate(150%);
     -webkit-backdrop-filter: blur(28px) saturate(150%);
     border: 1px solid rgba(255,255,255,0.09);
@@ -82,6 +82,11 @@
     font-feature-settings: 'tnum' 1;
   }
 
+  /* Headings: solid weight so they stay legible over footage */
+  .font-display {
+    font-weight: 700;
+  }
+
   /* Film grain — sits above gradients, below content. */
   .grain::after {
     content: '';
@@ -102,6 +107,12 @@
     -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
     mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
   }
+}
+
+/* "Scroll to watch" cue on the 3D hero */
+@keyframes scrollcue {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(250%); }
 }
 
 /* Honour the OS setting — motion is decoration, never the only signal. */

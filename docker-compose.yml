@@ -78,8 +78,14 @@ services:
       CORS_ORIGINS: "*"
       UPLOAD_DIR: /app/uploads
       OUTPUT_DIR: /app/outputs
+
+      # ─── Public-demo quota (services/rate_limit.py) ──────
+      DAILY_QUERY_LIMIT: ${DAILY_QUERY_LIMIT:-2}
+      DAILY_GLOBAL_QUERY_LIMIT: ${DAILY_GLOBAL_QUERY_LIMIT:-0}
     ports:
-      - "8000:8000"
+      # Loopback only: public traffic must come through nginx, which sets the
+      # X-Real-IP the per-visitor quota trusts. An exposed :8000 could spoof it.
+      - "127.0.0.1:8000:8000"
     volumes:
       - uploads:/app/uploads
       - outputs:/app/outputs

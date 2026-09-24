@@ -48,6 +48,11 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_SIZE = 500 * 1024 * 1024  # 500MB
 
+# Public-demo quota: agent runs per visitor IP per UTC day (see services/rate_limit.py).
+# DAILY_GLOBAL_QUERY_LIMIT caps the whole site; 0 disables the global cap.
+DAILY_QUERY_LIMIT = int(os.getenv("DAILY_QUERY_LIMIT", "2"))
+DAILY_GLOBAL_QUERY_LIMIT = int(os.getenv("DAILY_GLOBAL_QUERY_LIMIT", "0"))
+
 CAPTION_STYLES = ["bold_pop", "minimal_clean", "karaoke_sweep", "bounce_in", "glow"]
 
 EXPORT_FORMATS = {
