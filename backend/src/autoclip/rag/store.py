@@ -4,7 +4,7 @@ Additive, not a repointing of the existing `moments` table: `MomentRecord`
 (models.py) and routers/search.py's raw pgvector column already have a
 schema shape that predates this RAG package. Rather than migrate that
 table to LlamaIndex's node schema (node_id/text/metadata_/embedding), we
-let LlamaIndex manage its own table — `llamaindex_moment_nodes` — in the
+let LlamaIndex manage its own table — `data_moment_nodes` (PGVectorStore prefixes "data_") — in the
 same Postgres instance, populated by a dual-write from
 `services/moment_store.persist_moments()`. Nothing that already reads
 `MomentRecord`/`moments` (eval.py, the Clip/Video models) is touched.

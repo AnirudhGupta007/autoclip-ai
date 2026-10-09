@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
+import { useMediaQuery } from './primitives'
 
 /*
  * Scroll-driven 3D "film journey".
@@ -117,7 +118,8 @@ function useClipMedia(count) {
     const loader = new THREE.TextureLoader()
     return CLIPS.slice(0, count).map((clip) => {
       const video = document.createElement('video')
-      Object.assign(video, { src: clip.src, muted: true, loop: true, playsInline: true, preload: 'auto', crossOrigin: 'anonymous' })
+      // metadata only until the camera gets close — see `warm` in Journey
+      Object.assign(video, { src: clip.src, muted: true, loop: true, playsInline: true, preload: 'metadata', crossOrigin: 'anonymous' })
       video.setAttribute('playsinline', '')
       return {
         video,
@@ -230,8 +232,7 @@ function Dust({ count, length }) {
   )
 }
 
-function Journey({ progress, reduced, active }) {
-  const narrow = typeof window !== 'undefined' && window.innerWidth < 768
+function Journey({ progress, reduced, active, narrow }) {
   const count = narrow ? 42 : 66
   const pickCount = narrow ? 3 : 5
   const stills = useStillTextures()
@@ -244,6 +245,7 @@ function Journey({ progress, reduced, active }) {
   const glows = useRef([])
   const overlays = useRef([])
   const playing = useRef(false)
+  const warm = useRef(false)
   const p = useRef(0)
   const look = useMemo(() => new THREE.Vector3(), [])
   const target = useMemo(() => new THREE.Vector3(), [])
@@ -262,6 +264,12 @@ function Journey({ progress, reduced, active }) {
     const t = state.clock.elapsedTime
     p.current = THREE.MathUtils.damp(p.current, progress.get(), 5, dt)
     const P = p.current
+
+    // Start buffering the clips a little before they are needed
+    if (!warm.current && P > 0.08) {
+      warm.current = true
+      clips.forEach((c) => (c.video.preload = 'auto'))
+    }
 
     // Clips only need to play once the picks start glowing
     const wantPlay = P > 0.2
@@ -378,16 +386,28 @@ function Journey({ progress, reduced, active }) {
   )
 }
 
+function isLowPower() {
+  if (typeof navigator === 'undefined') return false
+  const cores = navigator.hardwareConcurrency || 8
+  const mem = navigator.deviceMemory || 8
+  return cores <= 4 || mem <= 4 || !!navigator.connection?.saveData
+}
+
 export default function FilmScene({ progress, active = true, reduced = false }) {
+  const narrow = useMediaQuery('(max-width: 767px)')
+  const lowPower = useMemo(isLowPower, [])
+  // Cap the pixel ratio: 1.75 keeps frames crisp on desktop without the cost
+  // of 2–3x on phones; narrow / low-power devices stay near native.
+  const dpr = narrow || lowPower ? [1, 1.25] : [1, 1.75]
   return (
     <Canvas
       className="!absolute inset-0"
       frameloop={active ? 'always' : 'never'}
-      dpr={[1.5, 2]} // supersample on 1x screens — frames were soft at dpr 1
+      dpr={dpr}
       camera={{ fov: 50, near: 0.1, far: 120, position: [0, 0, 7.5] }}
       gl={{ antialias: true, powerPreference: 'high-performance' }}
     >
-      <Journey progress={progress} reduced={reduced} active={active} />
+      <Journey progress={progress} reduced={reduced} active={active} narrow={narrow} />
     </Canvas>
   )
 }

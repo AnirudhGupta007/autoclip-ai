@@ -1,12 +1,18 @@
-"""Daily query quota for the public demo.
+"""Rate limits and daily chat quotas (Redis fixed-window counters).
 
-Every chat message runs the agent, and every agent run spends OpenRouter
-credits — so each visitor (by client IP) gets DAILY_QUERY_LIMIT messages per
-UTC day. An optional DAILY_GLOBAL_QUERY_LIMIT caps the whole site, as a
-backstop against IP rotation.
+Two kinds of limit live here:
+
+  • `hit(name, subject, limit, window)` — generic fixed-window limiter used
+    for signup (per IP / day) and login (per IP+email / 15 min).
+  • The chat quota. Every chat message runs the agent, and every agent run
+    spends OpenRouter credits, so each *user* gets DAILY_QUERY_LIMIT runs per
+    UTC day (admins: unlimited; the shared demo account: one shared
+    DEMO_DAILY_QUERY_LIMIT pool). A per-IP backstop (IP_DAILY_QUERY_LIMIT)
+    catches one person with many accounts, and DAILY_GLOBAL_QUERY_LIMIT caps
+    the whole site.
 
 Counters live in Redis (shared across workers/replicas, survive restarts).
-If Redis is unavailable, an in-process dict keeps the limit working on a
+If Redis is unavailable, an in-process dict keeps the limits working on a
 single worker rather than failing open.
 """
 from __future__ import annotations
@@ -14,10 +20,14 @@ from __future__ import annotations
 import ipaddress
 import logging
 import threading
+import time
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from fastapi import Request
 
+from autoclip.auth import settings as auth_settings
 from autoclip.config import DAILY_GLOBAL_QUERY_LIMIT, DAILY_QUERY_LIMIT
 from autoclip.services.events import _get_sync
 
@@ -54,18 +64,13 @@ def seconds_until_reset() -> int:
     return int((tomorrow - now).total_seconds())
 
 
-def _keys(ip: str) -> tuple[str, str]:
-    day = _today()
-    return f"quota:chat:{day}:{ip}", f"quota:chat:{day}:__global__"
-
-
-def _incr(key: str, amount: int = 1) -> int:
+def _incr(key: str, amount: int = 1, ttl: int = _KEY_TTL_SECONDS) -> int:
     client = _get_sync()
     if client is not None:
         try:
             pipe = client.pipeline()
             pipe.incrby(key, amount)
-            pipe.expire(key, _KEY_TTL_SECONDS)
+            pipe.expire(key, ttl)
             return int(pipe.execute()[0])
         except Exception:
             logger.warning("rate limit: redis unavailable, using in-process counter", exc_info=True)
@@ -85,32 +90,89 @@ def _get(key: str) -> int:
         return _local_counts.get(key, 0)
 
 
-def remaining(ip: str) -> int:
-    user_key, _ = _keys(ip)
-    return max(0, DAILY_QUERY_LIMIT - _get(user_key))
+# ─── generic fixed-window limiter ───────────────────────────────
+
+def hit(name: str, subject: str, limit: int, window_seconds: int) -> bool:
+    """Count one attempt; False once `limit` attempts happened in the current
+    window. limit <= 0 disables the check."""
+    if limit <= 0:
+        return True
+    bucket = int(time.time() // window_seconds)
+    key = f"rl:{name}:{bucket}:{subject}"
+    return _incr(key, 1, ttl=window_seconds + 60) <= limit
 
 
-def try_consume(ip: str) -> tuple[bool, int, str]:
-    """Reserve one query. Returns (allowed, remaining_after, reason)."""
-    user_key, global_key = _keys(ip)
+# ─── chat quota ─────────────────────────────────────────────────
 
-    used = _incr(user_key)
-    if used > DAILY_QUERY_LIMIT:
-        _incr(user_key, -1)  # don't let blocked attempts pile up
-        return False, 0, "user"
+def chat_limit(user) -> Optional[int]:
+    """Daily agent-run limit for this user; None = unlimited (admin)."""
+    if user.is_admin:
+        return None
+    if user.is_demo:
+        return auth_settings.DEMO_DAILY_QUERY_LIMIT
+    return DAILY_QUERY_LIMIT
 
+
+def _user_key(user) -> str:
+    subject = "demo" if user.is_demo else f"u{user.id}"
+    return f"quota:chat:{_today()}:{subject}"
+
+
+def _ip_key(ip: str) -> str:
+    return f"quota:chat:{_today()}:ip:{ip}"
+
+
+def _global_key() -> str:
+    return f"quota:chat:{_today()}:__global__"
+
+
+@dataclass
+class Charge:
+    """Counters incremented by one try_consume(), so refund() undoes exactly those."""
+    keys: list[str] = field(default_factory=list)
+
+
+def remaining(user) -> Optional[int]:
+    limit = chat_limit(user)
+    if limit is None:
+        return None
+    return max(0, limit - _get(_user_key(user)))
+
+
+def try_consume(user, ip: str) -> tuple[bool, Optional[int], str, Charge]:
+    """Reserve one agent run. Returns (allowed, remaining_after, reason, charge);
+    reason is "user", "ip" or "global" when refused."""
+    charge = Charge()
+    limit = chat_limit(user)
+    if limit is None:
+        return True, None, "", charge
+
+    key = _user_key(user)
+    used = _incr(key)
+    if used > limit:
+        _incr(key, -1)  # don't let blocked attempts pile up
+        return False, 0, "user", charge
+    charge.keys.append(key)
+
+    checks = []
+    if auth_settings.IP_DAILY_QUERY_LIMIT > 0:
+        checks.append((_ip_key(ip), auth_settings.IP_DAILY_QUERY_LIMIT, "ip"))
     if DAILY_GLOBAL_QUERY_LIMIT > 0:
-        if _incr(global_key) > DAILY_GLOBAL_QUERY_LIMIT:
-            _incr(global_key, -1)
-            _incr(user_key, -1)
-            return False, max(0, DAILY_QUERY_LIMIT - used + 1), "global"
+        checks.append((_global_key(), DAILY_GLOBAL_QUERY_LIMIT, "global"))
+    for k, lim, reason in checks:
+        if _incr(k) > lim:
+            _incr(k, -1)
+            refund(charge)
+            return False, max(0, limit - used + 1), reason, Charge()
+        charge.keys.append(k)
 
-    return True, max(0, DAILY_QUERY_LIMIT - used), ""
+    return True, max(0, limit - used), "", charge
 
 
-def refund(ip: str) -> None:
-    """Give the query back when the run failed on our side (e.g. provider error)."""
-    user_key, global_key = _keys(ip)
-    _incr(user_key, -1)
-    if DAILY_GLOBAL_QUERY_LIMIT > 0:
-        _incr(global_key, -1)
+def refund(charge: Optional[Charge]) -> None:
+    """Give the run back when it failed on our side (e.g. provider error)."""
+    if not charge:
+        return
+    for k in charge.keys:
+        _incr(k, -1)
+    charge.keys = []

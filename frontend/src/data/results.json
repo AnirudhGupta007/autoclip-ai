@@ -1,0 +1,30 @@
+{
+  "updated": "2026-10-01",
+  "method_url": "https://github.com/AnirudhGupta007/autoclip-ai/blob/master/EVALUATION.md",
+  "subject": {
+    "label": "a 98-minute feature film",
+    "human_moments": 35,
+    "queries": 6,
+    "match_rule": "a clip counts as a hit when it overlaps a human-labelled moment by at least 50% of the shorter span"
+  },
+  "baseline": {
+    "label": "Before",
+    "measured": "2026-10-01",
+    "git": "9da3aad",
+    "n_queries": 6,
+    "n_clips": 9,
+    "hit_at_3": 0.0,
+    "hit_at_1": 0.0,
+    "mrr": 0.0,
+    "category_match": 0.1111,
+    "clip_precision": 0.2222,
+    "transcript_coverage": 0.0319,
+    "moment_recall": 0.3714,
+    "captions_present": 0.0,
+    "length_adherence": 0.875,
+    "aspect_adherence": 1.0,
+    "cost_usd_per_video": 1.449,
+    "wall_s_per_video": 1290.7
+  },
+  "current": null
+}

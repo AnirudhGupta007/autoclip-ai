@@ -1,8 +1,9 @@
 """Music search endpoint using Pexels."""
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
+from autoclip.auth.deps import current_user
 from autoclip.services.music_service import search_music
 
-router = APIRouter(prefix="/api/music", tags=["music"])
+router = APIRouter(prefix="/api/music", tags=["music"], dependencies=[Depends(current_user)])
 
 
 @router.get("/search")

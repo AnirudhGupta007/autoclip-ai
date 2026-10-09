@@ -3,6 +3,11 @@
 # Certs live on the host (see DEPLOY.md, "HTTPS"); acme.sh renews them and
 # reloads nginx in place.
 services:
+  backend:
+    environment:
+      # HTTPS in prod: Secure `__Host-session` cookie
+      COOKIE_SECURE: "1"
+
   frontend:
     ports:
       - "80:80"

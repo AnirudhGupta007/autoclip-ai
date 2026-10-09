@@ -46,10 +46,57 @@ def _moment_to_node(video_id: str, moment: Moment, node_id: str) -> TextNode:
     )
 
 
+def delete_video_nodes(video_id: str) -> int:
+    """Remove every indexed node for `video_id` (video delete / re-analysis).
+
+    PGVectorStore deletes by ref_doc_id only, and our nodes are keyed by
+    metadata, so on Postgres this is a direct DELETE on the LlamaIndex table
+    (`data_moment_nodes`). The in-memory fallback store is pruned by node id
+    prefix ("<video_id>:<i>"). Returns rows removed (best effort, -1 = unknown).
+    """
+    from autoclip.config import DATABASE_URL
+    if DATABASE_URL.startswith("postgres"):
+        from sqlalchemy import text
+        from autoclip.database import engine
+        from autoclip.rag.store import TABLE_NAME
+        table = f"data_{TABLE_NAME}"
+        with engine.begin() as conn:
+            exists = conn.execute(text("SELECT to_regclass(:t)"), {"t": table}).scalar()
+            if not exists:
+                return 0
+            res = conn.execute(
+                text(f"DELETE FROM {table} WHERE metadata_->>'video_id' = :vid"),
+                {"vid": video_id},
+            )
+            return res.rowcount or 0
+    try:
+        store = get_moment_index().vector_store
+        data = getattr(store, "data", None) or getattr(store, "_data", None)
+        if data is None:
+            return -1
+        prefix = f"{video_id}:"
+        ids = [k for k in list(data.embedding_dict) if k.startswith(prefix)]
+        for k in ids:
+            data.embedding_dict.pop(k, None)
+            data.text_id_to_ref_doc_id.pop(k, None)
+            getattr(data, "metadata_dict", {}).pop(k, None)
+        return len(ids)
+    except Exception as e:
+        logger.warning("delete_video_nodes (in-memory) failed for %s: %s", video_id, e)
+        return -1
+
+
 def index_moments(video_id: str, moments: list[Moment]) -> int:
-    """Add this video's moments to the RAG index. Best-effort — a RAG indexing
-    failure must never break the analysis pipeline (fusion/persist already
-    succeeded by the time this runs)."""
+    """Replace this video's moments in the RAG index. Best-effort — a RAG
+    indexing failure must never break the analysis pipeline (fusion/persist
+    already succeeded by the time this runs). Old rows are deleted first so
+    a re-analysis that finds fewer moments doesn't leave stale nodes behind."""
+    try:
+        removed = delete_video_nodes(video_id)
+        if removed:
+            logger.info("rag.index_moments: removed %s stale nodes for video=%s", removed, video_id)
+    except Exception as e:
+        logger.warning("rag.index_moments: stale-node cleanup failed for %s: %s", video_id, e)
     if not moments:
         return 0
     try:

@@ -39,3 +39,17 @@ def persist_moments(db: Session, video_id: str, moments: list[Moment]) -> int:
         logger.warning("RAG indexing failed for video=%s (non-fatal): %s", video_id, e)
 
     return n
+
+
+def delete_moments(db: Session, video_id: str) -> int:
+    """Remove a video's moments from both stores (`moments` table + the RAG
+    vector table). Does not commit — the caller owns the transaction."""
+    n = db.query(MomentRecord).filter(MomentRecord.video_id == video_id).delete(
+        synchronize_session=False
+    )
+    try:
+        from autoclip.rag.index import delete_video_nodes
+        delete_video_nodes(video_id)
+    except Exception as e:
+        logger.warning("RAG node cleanup failed for video=%s (non-fatal): %s", video_id, e)
+    return n

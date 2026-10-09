@@ -36,7 +36,7 @@ eval: ## Run the moment-detection eval harness (set up backend/eval/dataset.json
 
 # ─── Docker (one-command full stack) ────────────────────
 up: ## Build + start all services (postgres + redis + backend + frontend)
-	@if [ ! -f .env ]; then cp .env.example .env && echo ".env created — fill in GEMINI_API_KEY and GROQ_API_KEY then rerun"; exit 1; fi
+	@if [ ! -f .env ]; then cp .env.example .env && echo ".env created — fill in OPENROUTER_API_KEY then rerun"; exit 1; fi
 	docker compose up -d --build
 	@echo "→ http://localhost  (api: http://localhost/api/health)"
 

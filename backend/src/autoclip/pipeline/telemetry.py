@@ -22,6 +22,8 @@ class CounterSnapshot:
     prompt_tokens: int = 0
     cached_tokens: int = 0
     output_tokens: int = 0
+    failures: int = 0       # calls that ultimately failed (after retries) or returned unusable output
+    retries: int = 0        # extra attempts made after a failed/degenerate response
 
     @property
     def cache_hit_rate(self) -> float:
@@ -54,6 +56,13 @@ def _extract_usage(message) -> tuple[int, int, int]:
 def record_openrouter_call(message, model_label: str) -> None:
     """Record token usage from a LangChain AIMessage returned by an OpenRouter call."""
     prompt, cached, output = _extract_usage(message)
+    record_usage(model_label, prompt, cached, output)
+
+
+def record_usage(model_label: str, prompt: int = 0, cached: int = 0, output: int = 0) -> None:
+    """Record one call's raw token counts (for non-LangChain clients, e.g. the
+    OpenAI SDK embeddings call, whose usage lives on `resp.usage`)."""
+    prompt, cached, output = int(prompt or 0), int(cached or 0), int(output or 0)
     with _lock:
         c = _by_model.setdefault(model_label, CounterSnapshot())
         c.calls += 1
@@ -64,6 +73,20 @@ def record_openrouter_call(message, model_label: str) -> None:
         "openrouter_call model=%s prompt=%d cached=%d output=%d (cache_hit=%.1f%%)",
         model_label, prompt, cached, output, (cached / prompt * 100) if prompt else 0.0,
     )
+
+
+def record_failure(model_label: str, reason: str = "") -> None:
+    """Count a call that failed for good (after retries) or produced unusable output."""
+    with _lock:
+        _by_model.setdefault(model_label, CounterSnapshot()).failures += 1
+    logger.warning("openrouter_failure model=%s reason=%s", model_label, reason[:300])
+
+
+def record_retry(model_label: str, reason: str = "") -> None:
+    """Count a retry attempt (the original attempt is counted by record_* above)."""
+    with _lock:
+        _by_model.setdefault(model_label, CounterSnapshot()).retries += 1
+    logger.info("openrouter_retry model=%s reason=%s", model_label, reason[:300])
 
 
 def snapshot() -> dict[str, CounterSnapshot]:

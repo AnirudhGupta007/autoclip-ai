@@ -175,6 +175,19 @@ STYLE_GENERATORS = {
 }
 
 
+def _style_line_for(style: str, play_res: tuple[int, int]) -> str:
+    """Style line with MarginV scaled to the output: portrait clips get the
+    captions lifted into the lower third instead of hugging the bottom edge
+    (where TikTok/Reels UI overlays sit)."""
+    style_def = STYLE_DEFS.get(style, STYLE_DEFS["bold_pop"])
+    fields = style_def["style_line"].split(",")
+    w, h = play_res
+    if h > w:
+        fields[21] = str(int(h * 0.18))       # MarginV
+        fields[19] = fields[20] = str(int(w * 0.06))  # MarginL / MarginR
+    return ",".join(fields)
+
+
 def generate_captions(
     words: list[dict],
     clip_start: float,
@@ -182,7 +195,8 @@ def generate_captions(
     style: str = "bold_pop",
     output_path: str = None,
     words_per_group: int = 5,
-) -> str:
+    play_res: tuple[int, int] = (1920, 1080),
+):
     """
     Generate animated ASS captions for a clip.
 
@@ -190,30 +204,40 @@ def generate_captions(
         words: Word timestamps from transcription (absolute times)
         clip_start: Clip start time in source video
         clip_end: Clip end time in source video
-        style: Caption style name
+        style: Caption style name (unknown names fall back to bold_pop)
         output_path: Where to save the ASS file
         words_per_group: Words per subtitle block
+        play_res: Output video (width, height) — the ASS script resolution
 
     Returns:
-        Path to generated ASS file
+        Path to the ASS file (or the ASS text when output_path is None), or
+        None when no spoken words fall inside the clip — callers then skip
+        burning captions instead of stamping a "..." placeholder on the clip.
     """
-    # Filter words within clip range
-    clip_words = [
-        w for w in words
-        if w["start"] >= clip_start - 0.1 and w["end"] <= clip_end + 0.1
-    ]
+    # Words that overlap the clip window, clamped to it (a word straddling
+    # the cut would otherwise start at a negative clip-relative time).
+    clip_words = []
+    for w in words or []:
+        try:
+            ws, we = float(w["start"]), float(w["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        text = str(w.get("text", "")).strip()
+        if not text or we <= clip_start or ws >= clip_end:
+            continue
+        clip_words.append({**w, "text": text,
+                           "start": max(ws, clip_start), "end": min(max(we, ws + 0.05), clip_end)})
 
     if not clip_words:
-        clip_words = [{"text": "...", "start": clip_start, "end": clip_start + 1}]
+        return None
 
     groups = _group_words(clip_words, words_per_group)
-    style_def = STYLE_DEFS.get(style, STYLE_DEFS["bold_pop"])
     generator = STYLE_GENERATORS.get(style, _generate_bold_pop_events)
 
-    styles_block = style_def["style_line"]
+    styles_block = _style_line_for(style, play_res)
     events_block = generator(groups, clip_start)
 
-    ass_content = build_ass_file(styles_block, events_block)
+    ass_content = build_ass_file(styles_block, events_block, play_res=play_res)
 
     if output_path:
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)

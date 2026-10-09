@@ -93,6 +93,7 @@ class ProducedClip:
     overall_score: float
     frame: str
     style_tags: list[str]
+    caption_style: str = "bold_pop"
 
 
 @dataclass
@@ -148,6 +149,10 @@ class PipelineState(TypedDict, total=False):
 
     # Produced clips
     clips: Annotated[list[ProducedClip], _replace]
+
+    # [lo, hi] window clips may be taken from (credits / speech-free tails
+    # excluded — see utils/video_profile.safe_range). Optional.
+    safe_range: tuple
 
     # Control flow
     needs_reanalysis: bool

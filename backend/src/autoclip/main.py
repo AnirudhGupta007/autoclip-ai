@@ -1,11 +1,12 @@
 """FastAPI application entry point."""
-import os
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from autoclip.database import init_db
-from autoclip.config import UPLOAD_DIR, OUTPUT_DIR
-from autoclip.routers import videos, clips, music
+from autoclip.auth import settings as auth_settings
+from autoclip.auth.deps import require_admin
+from autoclip.auth.origin import OriginCheckMiddleware
+from autoclip.routers import videos, clips, music, files
+from autoclip.routers.auth import router as auth_router
 from autoclip.routers.chat import router as chat_router
 from autoclip.routers.search import router as search_router
 
@@ -15,31 +16,29 @@ app = FastAPI(
     version="2.0.0",
 )
 
-cors_origins = os.getenv(
-    "CORS_ORIGINS",
-    "http://localhost:5173,http://127.0.0.1:5173"
-).split(",")
-
+# Explicit allow-list — never "*" with credentials (cookies).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
+    allow_origins=auth_settings.ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type"],
 )
+app.add_middleware(OriginCheckMiddleware)
+
+# Auth (the only public API besides /api/health)
+app.include_router(auth_router)
 
 # Chat interface (primary)
 app.include_router(chat_router)
 
-# REST endpoints
+# REST endpoints — all require a session and are scoped to the caller's data
 app.include_router(videos.router)
 app.include_router(clips.router)
 app.include_router(music.router)
 app.include_router(search_router)
-
-# Serve uploaded and output files
-app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
-app.mount("/outputs", StaticFiles(directory=str(OUTPUT_DIR)), name="outputs")
+# Media: ownership-checked replacement for the old public /uploads, /outputs mounts
+app.include_router(files.router)
 
 
 @app.on_event("startup")
@@ -52,9 +51,9 @@ def health():
     return {"status": "ok", "service": "AutoClip AI", "version": "2.0.0"}
 
 
-@app.get("/api/telemetry")
+@app.get("/api/telemetry", dependencies=[Depends(require_admin)])
 def telemetry():
-    """Lightweight rollup of OpenRouter calls + cache hit rate, per model_label."""
+    """Lightweight rollup of OpenRouter calls + cache hit rate, per model_label (admins only)."""
     from autoclip.pipeline import telemetry as t
     return {
         model: {

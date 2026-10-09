@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Float, Integer, Text, ForeignKey, DateTime, JSON
+from sqlalchemy import Column, String, Float, Integer, Text, ForeignKey, DateTime, JSON, Boolean
 from sqlalchemy.orm import relationship
 from autoclip.config import DATABASE_URL
 from autoclip.database import Base
@@ -22,6 +22,37 @@ def generate_id():
     return uuid.uuid4().hex[:12]
 
 
+def utcnow() -> datetime:
+    """Naive UTC — the existing columns are TIMESTAMP WITHOUT TIME ZONE."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String(320), nullable=False, unique=True, index=True)  # stored lower-cased
+    password_hash = Column(String, nullable=False)
+    is_admin = Column(Boolean, nullable=False, default=False)
+    is_demo = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=utcnow)
+
+    videos = relationship("Video", back_populates="owner")
+
+
+class AuthSession(Base):
+    """A login session. Only sha256(token) is stored — a DB leak doesn't
+    hand out live cookies."""
+    __tablename__ = "sessions"
+
+    token_hash = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime, default=utcnow)
+    expires_at = Column(DateTime, nullable=False, index=True)
+
+    user = relationship("User")
+
+
 class Video(Base):
     __tablename__ = "videos"
 
@@ -30,9 +61,15 @@ class Video(Base):
     file_path = Column(String, nullable=False)
     duration = Column(Float, nullable=True)
     resolution = Column(String, nullable=True)
+    # uploaded -> analyzing -> analyzed | failed  (background job: utils/analysis_jobs.py;
+    # legacy rows may still say "completed"/"processing" — normalised there)
     status = Column(String, default="uploaded")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    # Owner. Nullable only at the DB level (migration 0002 back-fills legacy
+    # rows); every code path that creates a Video sets it.
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
 
+    owner = relationship("User", back_populates="videos")
     clips = relationship("Clip", back_populates="video", cascade="all, delete-orphan")
 
 
@@ -40,7 +77,7 @@ class Clip(Base):
     __tablename__ = "clips"
 
     id = Column(String, primary_key=True, default=generate_id)
-    video_id = Column(String, ForeignKey("videos.id"), nullable=False)
+    video_id = Column(String, ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
     title = Column(String, nullable=True)
     start_time = Column(Float, nullable=False)
     end_time = Column(Float, nullable=False)
@@ -71,7 +108,9 @@ class MomentRecord(Base):
     __tablename__ = "moments"
 
     id = Column(String, primary_key=True, default=generate_id)
-    video_id = Column(String, ForeignKey("videos.id"), nullable=False, index=True)
+    # ondelete only affects freshly created schemas; existing DBs rely on the
+    # explicit delete in routers/videos.delete_video.
+    video_id = Column(String, ForeignKey("videos.id", ondelete="CASCADE"), nullable=False, index=True)
     start = Column(Float, nullable=False)
     end = Column(Float, nullable=False)
     description = Column(Text, nullable=True)

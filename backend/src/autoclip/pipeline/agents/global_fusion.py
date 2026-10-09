@@ -3,11 +3,16 @@
 Chunks overlap by ~10s, so the same real moment may appear at the end of
 chunk N and the start of chunk N+1. This node consolidates duplicates by:
   1. Greedy temporal merge (overlap > 50% of the shorter window)
-  2. Optional cosine-similarity dedupe via embeddings (Phase 2.5)
+  2. Each moment's transcript is re-sliced from the real word-level
+     transcript for its own [start, end] (model-quoted text can be wrong)
+  3. Optional embedding dedupe on description + own-window dialogue, only
+     between moments whose centres are within FUSION_DEDUPE_WINDOW_SECONDS
+     (live: whole-film dedupe on bad shared transcripts collapsed 229 → 52)
 The merged result is the canonical `moment_map` for clip selection.
 """
 from __future__ import annotations
 import logging
+from autoclip.config import FUSION_DEDUPE_THRESHOLD, FUSION_DEDUPE_WINDOW_SECONDS
 from autoclip.pipeline.state import PipelineState, Moment
 from autoclip.services import events
 
@@ -40,6 +45,25 @@ def _merge(a: Moment, b: Moment) -> Moment:
     )
 
 
+def _window_text(words: list[dict], start: float, end: float) -> str:
+    return " ".join(w["text"] for w in words if w["start"] < end and w["end"] > start).strip()
+
+
+def _attach_own_transcripts(moments: list[Moment], transcript_data: dict) -> None:
+    """Replace each moment's transcript with the real words in its window.
+
+    Keeps the model's text only when the transcript has nothing there (e.g.
+    in video mode the model may have heard dialogue transcription missed).
+    """
+    words = (transcript_data or {}).get("words") or []
+    if not words:
+        return
+    for m in moments:
+        own = _window_text(words, m.start, m.end)
+        if own:
+            m.transcript = own[:1000]
+
+
 def global_fusion_node(state: PipelineState) -> dict:
     raw = list(state.get("moment_map_raw") or [])
     if not raw:
@@ -58,16 +82,23 @@ def global_fusion_node(state: PipelineState) -> dict:
         if not absorbed:
             merged.append(m)
 
-    # Optional embedding-based dedupe (Phase 2.5)
+    n_temporal = len(merged)
+    _attach_own_transcripts(merged, state.get("transcript_data") or {})
+
+    # Embedding dedupe (Phase 2.5) — temporally local only.
     try:
         from autoclip.services.embeddings import embed_moments, cosine_sim_dedupe
         embed_moments(merged)
-        merged = cosine_sim_dedupe(merged, threshold=0.92)
+        merged = cosine_sim_dedupe(
+            merged, threshold=FUSION_DEDUPE_THRESHOLD, max_gap_s=FUSION_DEDUPE_WINDOW_SECONDS,
+        )
     except Exception as e:
-        logger.debug("embedding dedupe skipped (non-fatal): %s", e)
+        logger.warning("embedding dedupe skipped (non-fatal): %s", e)
 
     merged.sort(key=lambda m: m.convergence_score, reverse=True)
-    logger.info("global_fusion: %d raw → %d merged", len(raw), len(merged))
+    logger.info("global_fusion: %d raw → %d after temporal merge → %d after embedding dedupe "
+                "(threshold=%.2f, window=%.0fs)", len(raw), n_temporal, len(merged),
+                FUSION_DEDUPE_THRESHOLD, FUSION_DEDUPE_WINDOW_SECONDS)
 
     video_id = state.get("video_id")
     if video_id:

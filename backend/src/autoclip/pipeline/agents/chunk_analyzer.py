@@ -1,188 +1,442 @@
-"""Chunk analyzer — frame-sampled vision call per video chunk, via OpenRouter.
+"""Chunk analyzer — one OpenRouter vision call per video chunk.
 
-OpenRouter has no native video-file-upload API (unlike Google's Gemini File
-API), so instead of uploading the raw chunk video we sample ~1 frame every
-FRAME_SAMPLE_INTERVAL_S seconds, base64-encode each as JPEG, and send them
-as a sequence of `image_url` (data URI) content parts in one chat-completion
-call to a vision-capable model (OPENROUTER_MODEL_VISION), alongside the
-chunk's transcript window. This approximates native video understanding —
-visual_energy/audio_energy judgments rely more heavily on the transcript
-signal than a true video model would, which is a known precision tradeoff
-(see README).
+Two input modes (VISION_INPUT_MODE):
 
-This still runs one call per chunk under LangGraph's Send-API fan-out —
-the parallel time-chunked architecture is unchanged, only the transport
-for that per-chunk call moved from Gemini's File API to OpenRouter.
+  frames (default) — VISION_MAX_FRAMES JPEGs sampled *evenly across the
+      whole chunk* (spacing = chunk_len / N, frame i at (i+0.5)·spacing),
+      each preceded by a text label with its chunk-relative time, sent as
+      `image_url` data-URI parts. The model cannot hear audio in this mode;
+      audio_energy is inferred from the transcript and visible reactions.
+  video — the chunk re-encoded small (VISION_VIDEO_HEIGHT, H.264+AAC) and
+      sent as one native `video_url` data-URI part. Live-verified on
+      OpenRouter with google/gemini-2.5-flash-lite: the model sees ~1 fps
+      (258 tokens/frame regardless of resolution) and also hears the audio
+      track (~25 tokens/s), so a 120s chunk costs ~34k input tokens vs ~6k
+      for 24 frames. If a video call fails outright, the chunk falls back
+      to frames mode once.
+
+Robustness (live-run fixes): retries (CHUNK_ANALYZE_ATTEMPTS) with
+tolerant JSON repair; per-moment validation so one bad field doesn't
+discard the whole chunk; failures logged and counted in telemetry. The
+model returns times relative to the chunk; absolute times are detected
+and converted; every moment is clamped to [chunk_start, chunk_end] or
+discarded if it mostly lies outside. The transcript window holds ONLY the
+words inside this chunk (never a whole-video fallback).
+
+Scratch files live in OUTPUT_DIR/{video_id}/chunks/chunk_NNN/, are cleared
+before use and deleted after analysis (uploads are all named source.*, so
+the old outputs/chunks/source_{i}.* paths collided across videos).
+
+Runs once per chunk under LangGraph's Send-API fan-out.
 """
 from __future__ import annotations
 import base64
 import logging
+import shutil
 import subprocess
+import threading
 from pathlib import Path
 from typing import Optional
 
-from autoclip.llm.openrouter import get_vision_model
-from autoclip.pipeline.state import (
-    PipelineState, Moment, ChunkAnalysis, ChunkPlan,
+from autoclip.config import (
+    OUTPUT_DIR,
+    VISION_INPUT_MODE,
+    VISION_MAX_FRAMES,
+    VISION_FRAME_WIDTH,
+    VISION_VIDEO_HEIGHT,
+    VISION_MAX_TOKENS,
+    CHUNK_ANALYZE_ATTEMPTS,
+    VISION_FFMPEG_CONCURRENCY,
 )
+from autoclip.llm.openrouter import get_vision_model, extract_json, message_text, finish_reason
+from autoclip.pipeline.state import PipelineState, Moment, ChunkPlan
 from autoclip.pipeline import telemetry
 
 logger = logging.getLogger(__name__)
 
-FRAME_SAMPLE_INTERVAL_S = 2.5
-MAX_SAMPLED_FRAMES = 24  # cap payload size on long chunks
+TELEMETRY_LABEL = "vision"
+MAX_MOMENTS = 5
+MIN_MOMENT_S = 3.0
+MAX_TRANSCRIPT_CHARS = 6000
+STYLE_TAGS = ["hot_take", "story", "quote", "educational",
+              "controversial", "emotional", "funny", "story_beat"]
+# LangGraph fans every chunk out at once (thread pool of ~cpu+4); the LLM
+# calls are cheap to overlap but each ffmpeg decode is ~100 MB RSS, so frame
+# sampling / video re-encoding is bounded separately.
+_FFMPEG_SLOTS = threading.BoundedSemaphore(max(1, VISION_FFMPEG_CONCURRENCY))
+# Back-compat names (older scripts import these).
+MAX_SAMPLED_FRAMES = VISION_MAX_FRAMES
 
 
-# ─── System prompt (identical curation rules to the previous version) ───
+# ─── Prompt + schema ─────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are a video clip-curation expert. Given a sequence of \
-sampled frames from a short video chunk (2 minutes max, frames spaced a few \
-seconds apart) and its transcript, identify up to 5 moments inside the chunk \
-that would make great viral short-form clips.
+_SYSTEM_COMMON = """You are a video clip-curation expert. Identify up to 5 moments \
+inside this video chunk that would make great viral short-form clips.
 
 A great moment has at least one of:
   • a strong verbal hook (hot take, surprising claim, story beat, punchline, tight quote)
-  • visual energy (gestures, reactions, scene change, B-roll cut, on-screen text)
-  • audio energy (laughter, applause, pitch swing, dramatic pause + payoff) — infer this \
-    from the transcript's punctuation/phrasing and any visible reactions in frames, since \
-    you cannot hear the audio directly.
+  • visual energy (gestures, reactions, action, scene change, on-screen text)
+  • audio energy (laughter, applause, shouting, pitch swing, dramatic pause + payoff)
 
 Rules:
-  1. Timestamps MUST be in seconds, relative to the start of the FULL video — \
-     the chunk metadata tells you the chunk's start offset; add it to your \
-     within-chunk timestamps.
-  2. Each moment is 5-30 seconds. No clip-length-zero moments.
+  1. Timestamps are SECONDS FROM THE START OF THIS CHUNK (0 = first instant of \
+the chunk, never more than the chunk length). Do not add any offset.
+  2. Each moment is 5-30 seconds and lies entirely inside the chunk.
   3. Quality over quantity. Return 0-5 moments. Empty is acceptable.
   4. convergence_score > 0.7 ONLY when 2+ modalities co-fire — be strict, \
-     this drives downstream ranking.
-  5. transcript must be verbatim from the supplied transcript window, not paraphrased.
+this drives downstream ranking.
+  5. transcript must be copied verbatim from the supplied transcript lines for \
+that time range ("" if none) — never invent dialogue.
+  6. description says concretely what is seen/heard (who, what action), <200 chars.
 """
+
+_SYSTEM_FRAMES = _SYSTEM_COMMON + """
+Input: still frames sampled evenly across the chunk, each labelled with its \
+time (seconds from chunk start), plus the chunk's transcript lines. You cannot \
+hear the audio — infer audio energy from the transcript and visible reactions. \
+Use the frame labels to place moments in time.
+"""
+
+_SYSTEM_VIDEO = _SYSTEM_COMMON + """
+Input: the chunk itself as a video WITH its audio track, plus a machine \
+transcript of the chunk (may have gaps). Use what you see and hear; the video's \
+own timeline (starting at 0) is the time base.
+"""
+
+_NUM01 = {"type": "number", "minimum": 0, "maximum": 1}
+RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "chunk_moments",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "moments": {
+                    "type": "array",
+                    "maxItems": MAX_MOMENTS,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "start": {"type": "number", "description": "seconds from chunk start"},
+                            "end": {"type": "number", "description": "seconds from chunk start"},
+                            "description": {"type": "string"},
+                            "transcript": {"type": "string"},
+                            "style_tags": {"type": "array", "items": {"type": "string", "enum": STYLE_TAGS}},
+                            "visual_energy": _NUM01,
+                            "audio_energy": _NUM01,
+                            "text_hook_strength": _NUM01,
+                            "convergence_score": _NUM01,
+                        },
+                        "required": ["start", "end", "description", "transcript", "style_tags",
+                                     "visual_energy", "audio_energy", "text_hook_strength",
+                                     "convergence_score"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["moments"],
+            "additionalProperties": False,
+        },
+    },
+}
 
 
 # ─── Helpers ─────────────────────────────────────────────────
 
 def _slice_transcript(transcript_data: dict, start: float, end: float) -> str:
-    """Extract the transcript text overlapping [start, end] from word-level data."""
-    words = transcript_data.get("words", []) or []
-    in_window = [w for w in words if w["start"] < end and w["end"] > start]
-    if in_window:
-        return " ".join(w["text"] for w in in_window).strip()
-    full_text = transcript_data.get("text", "") or ""
-    return full_text[:2000]
+    """Transcript lines inside [start, end], labelled with chunk-relative times.
+
+    Only this window's words — if the window has none, an explicit
+    "no dialogue" note (the old whole-transcript fallback fed every
+    silent chunk the film's ending).
+    """
+    transcript_data = transcript_data or {}
+    utts = [u for u in (transcript_data.get("utterances") or [])
+            if u.get("start", 0) < end and u.get("end", 0) > start and (u.get("text") or "").strip()]
+    if utts:
+        lines = [f"[{max(0.0, u['start'] - start):5.1f}s] {u['text'].strip()}" for u in utts]
+    else:
+        words = [w for w in (transcript_data.get("words") or [])
+                 if w.get("start", 0) < end and w.get("end", 0) > start]
+        lines = []
+        if words:   # group words into ~5s lines
+            cur, cur_t = [], None
+            for w in words:
+                if cur_t is None or w["start"] - cur_t > 5:
+                    if cur:
+                        lines.append(f"[{max(0.0, cur_t - start):5.1f}s] {' '.join(cur)}")
+                    cur, cur_t = [], w["start"]
+                cur.append(w["text"])
+            if cur:
+                lines.append(f"[{max(0.0, cur_t - start):5.1f}s] {' '.join(cur)}")
+    text = "\n".join(lines).strip()
+    if not text:
+        return "(no dialogue transcribed in this window)"
+    return text[:MAX_TRANSCRIPT_CHARS]
 
 
-def _cut_chunk(video_path: str, start: float, end: float, out_path: str) -> str:
-    """Cut a chunk from the source video using stream-copy (fast)."""
-    if start <= 0 and (end >= 1e9 or end <= 0):
-        return video_path
-    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+def _work_dir(plan: ChunkPlan, video_id: Optional[str]) -> Path:
+    """Per-video, per-chunk scratch dir, emptied before use."""
+    vid = video_id or Path(plan.video_path).resolve().parent.name or Path(plan.video_path).stem
+    d = Path(OUTPUT_DIR) / vid / "chunks" / f"chunk_{plan.index:03d}"
+    shutil.rmtree(d, ignore_errors=True)
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _frame_times(chunk_len: float, n: int) -> list[float]:
+    """n chunk-relative timestamps spread evenly across the whole chunk."""
+    n = max(1, min(n, int(chunk_len) or 1))
+    spacing = chunk_len / n
+    return [round((i + 0.5) * spacing, 2) for i in range(n)]
+
+
+def _sample_frames(video_path: str, chunk_start: float, times: list[float], out_dir: Path,
+                   width: int = VISION_FRAME_WIDTH) -> list[tuple[float, str]]:
+    """Grab one JPEG per timestamp straight from the source (accurate input
+    seek per frame). Returns [(relative_time, path)] that exist.
+
+    One short ffmpeg process per frame, sequentially: a single process with
+    N `-i` inputs opens N decoders at once — measured 1.3 GB peak RSS for
+    24 inputs of a 720p AV1 film vs ~110 MB per sequential call, at about
+    the same wall time (~5s/chunk).
+    """
+    outs = []
+    for i, t in enumerate(times):
+        p = out_dir / f"f_{i:03d}.jpg"
+        cmd = ["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{chunk_start + t:.3f}", "-i", video_path,
+               "-map", "0:v:0", "-frames:v", "1",
+               "-vf", f"scale='min({width},iw)':-2", "-q:v", "4", str(p)]
+        try:
+            subprocess.run(cmd, check=True, timeout=60)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            logger.debug("frame @%.1fs failed: %s", chunk_start + t, e)
+            continue
+        outs.append((t, p))
+    if not outs and times:
+        raise subprocess.CalledProcessError(1, "ffmpeg", "no frames could be extracted")
+    return [(t, str(p)) for t, p in outs if p.exists() and p.stat().st_size > 0]
+
+
+def _encode_chunk_video(video_path: str, start: float, duration: float, out_path: Path,
+                        height: int = VISION_VIDEO_HEIGHT) -> str:
+    """Re-encode [start, start+duration] small (H.264 + mono AAC) for video_url input."""
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
-        "-ss", str(start), "-to", str(end),
-        "-i", video_path,
-        "-c", "copy", "-avoid_negative_ts", "make_zero",
-        out_path,
+        "-ss", f"{start:.3f}", "-i", video_path, "-t", f"{duration:.3f}",
+        "-vf", f"scale=-2:'min({height},ih)',fps=2",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "30", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "48k", "-ac", "1",
+        "-movflags", "+faststart", str(out_path),
     ]
-    subprocess.run(cmd, check=True)
-    return out_path
+    subprocess.run(cmd, check=True, timeout=600)
+    return str(out_path)
 
 
-def _sample_frames(video_path: str, out_dir: str, interval: float, max_frames: int) -> list[str]:
-    """Sample frames at `interval` seconds via ffmpeg fps filter, return sorted paths."""
-    Path(out_dir).mkdir(parents=True, exist_ok=True)
-    fps = 1.0 / interval
-    pattern = str(Path(out_dir) / "f_%04d.jpg")
-    cmd = [
-        "ffmpeg", "-y", "-loglevel", "error",
-        "-i", video_path,
-        "-vf", f"fps={fps}",
-        "-q:v", "4",
-        pattern,
-    ]
-    subprocess.run(cmd, check=True)
-    frames = sorted(Path(out_dir).glob("f_*.jpg"))[:max_frames]
-    return [str(p) for p in frames]
-
-
-def _frame_to_data_uri(path: str) -> str:
+def _data_uri(path: str, mime: str) -> str:
     with open(path, "rb") as f:
-        b64 = base64.b64encode(f.read()).decode("ascii")
-    return f"data:image/jpeg;base64,{b64}"
+        return f"data:{mime};base64,{base64.b64encode(f.read()).decode('ascii')}"
 
 
-def _convergence_modalities(m) -> int:
-    """How many modalities are 'active' (energy > 0.4) for this moment."""
-    return sum(1 for v in (m.visual_energy, m.audio_energy, m.text_hook_strength) if v > 0.4)
+def _f01(v) -> float:
+    try:
+        return min(1.0, max(0.0, float(v)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _num(v) -> Optional[float]:
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, str):
+        try:
+            if ":" in v:
+                secs = 0.0
+                for part in v.strip().split(":"):
+                    secs = secs * 60 + float(part)
+                return secs
+            return float(v.strip().rstrip("s"))
+        except ValueError:
+            return None
+    return None
+
+
+def _coerce_moments(data, chunk_start: float, chunk_end: float, chunk_idx) -> Optional[list[Moment]]:
+    """Validate raw moment dicts → absolute-time Moment[] clamped to the chunk.
+
+    Returns None if the payload has no usable `moments` list (→ retry).
+    """
+    if isinstance(data, list):
+        raw = data
+    elif isinstance(data, dict) and isinstance(data.get("moments"), list):
+        raw = data["moments"]
+    else:
+        return None
+    chunk_len = chunk_end - chunk_start
+
+    items = []
+    for m in raw[: MAX_MOMENTS * 2]:
+        if not isinstance(m, dict):
+            continue
+        s, e = _num(m.get("start")), _num(m.get("end"))
+        if s is None or e is None or e <= s:
+            continue
+        items.append((s, e, m))
+    if not items:
+        return []
+
+    # The prompt asks for chunk-relative times; models sometimes return
+    # absolute ones anyway. If everything sits inside the absolute window and
+    # something lies beyond the chunk length, treat the response as absolute.
+    absolute = (
+        chunk_start > MIN_MOMENT_S
+        and all(chunk_start - 5 <= s <= chunk_end + 5 for s, _, _ in items)
+        and any(s > chunk_len + 5 for s, _, _ in items)
+    )
+    if absolute:
+        logger.info("chunk_analyzer: chunk %s returned absolute timestamps — converting", chunk_idx)
+
+    moments: list[Moment] = []
+    dropped = 0
+    for s, e, m in items:
+        if absolute:
+            s, e = s - chunk_start, e - chunk_start
+        cs, ce = max(0.0, s), min(chunk_len, e)
+        # Discard if mostly outside the chunk or too short after clamping.
+        if ce - cs < MIN_MOMENT_S or (ce - cs) < 0.5 * (e - s):
+            dropped += 1
+            continue
+        tags = [t for t in (m.get("style_tags") or []) if t in STYLE_TAGS][:3]
+        vis, aud, txt = _f01(m.get("visual_energy")), _f01(m.get("audio_energy")), _f01(m.get("text_hook_strength"))
+        moments.append(Moment(
+            start=round(chunk_start + cs, 2),
+            end=round(chunk_start + ce, 2),
+            visual_energy=vis,
+            audio_energy=aud,
+            text_hook_strength=txt,
+            convergence_score=_f01(m.get("convergence_score")),
+            modalities_active=sum(1 for v in (vis, aud, txt) if v > 0.4),
+            style_tags=tags,
+            description=str(m.get("description") or "")[:200],
+            transcript=str(m.get("transcript") or "")[:1000],
+        ))
+    if dropped:
+        logger.info("chunk_analyzer: chunk %s dropped %d moment(s) outside [%.1f, %.1f]",
+                    chunk_idx, dropped, chunk_start, chunk_end)
+    moments.sort(key=lambda x: -x.convergence_score)
+    return moments[:MAX_MOMENTS]
+
+
+def _build_messages(plan: ChunkPlan, mode: str, work: Path) -> tuple[list[dict], str]:
+    """Build the chat messages for one chunk. Returns (messages, effective_mode)."""
+    chunk_len = plan.end - plan.start
+    transcript_text = _slice_transcript(plan.transcript_window, plan.start, plan.end)
+    header = (
+        f"CHUNK: index={plan.index}, length={chunk_len:.1f}s "
+        f"(covers {plan.start:.1f}s-{plan.end:.1f}s of the full video, for reference only — "
+        f"answer in seconds from chunk start, 0-{chunk_len:.0f}).\n\n"
+        f"TRANSCRIPT LINES ([seconds from chunk start] text):\n{transcript_text}\n"
+    )
+    content: list[dict] = []
+
+    if mode == "video":
+        try:
+            with _FFMPEG_SLOTS:
+                clip = _encode_chunk_video(plan.video_path, plan.start, chunk_len, work / "chunk.mp4")
+            content = [
+                {"type": "text", "text": header + "\nThe chunk video (with audio) follows."},
+                {"type": "video_url", "video_url": {"url": _data_uri(clip, "video/mp4")}},
+            ]
+            system = _SYSTEM_VIDEO
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+            logger.warning("chunk_analyzer: video encode failed for chunk %s (%s) — using frames", plan.index, e)
+            mode = "frames"
+
+    if mode != "video":
+        times = _frame_times(chunk_len, VISION_MAX_FRAMES)
+        try:
+            with _FFMPEG_SLOTS:
+                frames = _sample_frames(plan.video_path, plan.start, times, work)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            logger.warning("chunk_analyzer: frame sampling failed for chunk %s: %s", plan.index, e)
+            frames = []
+        spacing = chunk_len / max(1, len(times))
+        content = [{"type": "text", "text": header + (
+            f"\n{len(frames)} frames follow, spaced ~{spacing:.1f}s apart across the whole chunk."
+        )}]
+        for t, fp in frames:
+            content.append({"type": "text", "text": f"frame @ {t:.1f}s"})
+            content.append({"type": "image_url", "image_url": {"url": _data_uri(fp, "image/jpeg")}})
+        system = _SYSTEM_FRAMES
+        mode = "frames"
+
+    content.append({"type": "text", "text": "Return up to 5 viral-clip moments as JSON per the rules."})
+    return [{"role": "system", "content": system}, {"role": "user", "content": content}], mode
+
+
+def _call(messages: list[dict], attempt: int):
+    """One vision call. Returns (parsed_json|None, problem|None)."""
+    model = get_vision_model(temperature=0.4 if attempt == 0 else 0.2, max_tokens=VISION_MAX_TOKENS)
+    try:
+        # response_format via extra_body: LangChain's structured-output path
+        # raises on finish_reason=length and discards repairable JSON.
+        msg = model.invoke(messages, extra_body={"response_format": RESPONSE_FORMAT})
+    except Exception as e:
+        return None, f"request_error: {str(e)[:300]}"
+    telemetry.record_openrouter_call(msg, model_label=TELEMETRY_LABEL)
+    data = extract_json(message_text(msg))
+    if data is None:
+        fr = finish_reason(msg)
+        return None, f"invalid_json(finish_reason={fr})"
+    return data, None
 
 
 # ─── Core: analyze one chunk ─────────────────────────────────
 
-def analyze_chunk(plan: ChunkPlan, video_id: Optional[str] = None) -> list[Moment]:
-    """Run one chunk through frame-sampled OpenRouter vision analysis and return Moment[]."""
-    chunk_path = _cut_chunk(
-        plan.video_path, plan.start, plan.end,
-        out_path=str(Path("outputs") / "chunks" / f"{Path(plan.video_path).stem}_{plan.index}.mp4"),
-    )
+def analyze_chunk(plan: ChunkPlan, video_id: Optional[str] = None,
+                  mode: Optional[str] = None) -> list[Moment]:
+    """Run one chunk through OpenRouter vision analysis and return Moment[]."""
+    mode = (mode or VISION_INPUT_MODE or "frames").lower()
+    if mode not in ("frames", "video"):
+        logger.warning("VISION_INPUT_MODE=%r unknown — using frames", mode)
+        mode = "frames"
 
-    frames_dir = str(Path("outputs") / "chunks" / f"{Path(plan.video_path).stem}_{plan.index}_frames")
+    work = _work_dir(plan, video_id)
+    moments: Optional[list[Moment]] = None
     try:
-        frame_paths = _sample_frames(chunk_path, frames_dir, FRAME_SAMPLE_INTERVAL_S, MAX_SAMPLED_FRAMES)
-    except subprocess.CalledProcessError as e:
-        logger.warning("frame sampling failed for chunk %s: %s", plan.index, e)
-        frame_paths = []
+        messages, eff_mode = _build_messages(plan, mode, work)
+        problem = None
+        attempts = max(1, CHUNK_ANALYZE_ATTEMPTS)
+        for attempt in range(attempts):
+            data, problem = _call(messages, attempt)
+            if data is not None:
+                moments = _coerce_moments(data, plan.start, plan.end, plan.index)
+                if moments is None:
+                    problem = "no_moments_list"
+            if moments is not None:
+                break
+            if attempt + 1 < attempts:
+                telemetry.record_retry(TELEMETRY_LABEL, f"chunk {plan.index} attempt {attempt + 1}: {problem}")
 
-    transcript_window_text = _slice_transcript(plan.transcript_window, plan.start, plan.end)
-    user_text = (
-        f"CHUNK METADATA:\n"
-        f"  chunk_index = {plan.index}\n"
-        f"  chunk_start_seconds = {plan.start:.2f}\n"
-        f"  chunk_end_seconds = {plan.end:.2f}\n"
-        f"  sampled_frames = {len(frame_paths)} (spaced ~{FRAME_SAMPLE_INTERVAL_S:.1f}s apart)\n\n"
-        f"TRANSCRIPT WINDOW (verbatim, word-level):\n{transcript_window_text}\n\n"
-        f"Return up to 5 viral-clip moments per the system rules. "
-        f"All timestamps must be in seconds relative to the FULL video."
-    )
+        if moments is None and eff_mode == "video":
+            # Video part rejected/garbled — one last try with frames.
+            logger.warning("chunk_analyzer: video mode failed for chunk %s (%s) — retrying with frames",
+                           plan.index, problem)
+            messages, _ = _build_messages(plan, "frames", work)
+            data, problem = _call(messages, 0)
+            if data is not None:
+                moments = _coerce_moments(data, plan.start, plan.end, plan.index)
 
-    content: list[dict] = [{"type": "text", "text": user_text}]
-    for fp in frame_paths:
-        content.append({"type": "image_url", "image_url": {"url": _frame_to_data_uri(fp)}})
-
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": content},
-    ]
-
-    model = get_vision_model().with_structured_output(ChunkAnalysis, include_raw=True)
-
-    try:
-        response = model.invoke(messages)
-        parsed: Optional[ChunkAnalysis] = response.get("parsed") if isinstance(response, dict) else None
-        raw = response.get("raw") if isinstance(response, dict) else None
-        telemetry.record_openrouter_call(raw, model_label="vision")
-    except Exception as e:
-        logger.warning("chunk_analyzer: OpenRouter call failed for chunk %s: %s", plan.index, e)
-        parsed = None
-
-    if parsed is None:
-        logger.warning("chunk_analyzer: parsed=None for chunk %s", plan.index)
-        return []
-
-    moments: list[Moment] = []
-    for m in parsed.moments:
-        if m.end <= m.start or (m.end - m.start) < 2.0:
-            continue
-        moments.append(Moment(
-            start=round(float(m.start), 2),
-            end=round(float(m.end), 2),
-            visual_energy=float(m.visual_energy),
-            audio_energy=float(m.audio_energy),
-            text_hook_strength=float(m.text_hook_strength),
-            convergence_score=float(m.convergence_score),
-            modalities_active=_convergence_modalities(m),
-            style_tags=list(m.style_tags),
-            description=(m.description or "")[:200],
-            transcript=(m.transcript or "")[:1000],
-        ))
+        if moments is None:
+            telemetry.record_failure(TELEMETRY_LABEL, f"chunk {plan.index} [{plan.start:.0f}-{plan.end:.0f}s]: {problem}")
+            moments = []
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+        try:   # drop outputs/{video_id}/chunks once the last chunk is done
+            work.parent.rmdir()
+        except OSError:
+            pass   # other chunks still running (dir not empty) or already gone
 
     if video_id:
         try:

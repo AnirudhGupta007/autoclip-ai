@@ -16,6 +16,7 @@ from autoclip.config import (
     OPENROUTER_API_KEY, OPENROUTER_BASE_URL, EMBEDDING_MODEL_NAME, EMBEDDING_DIM,
 )
 from autoclip.pipeline.state import Moment
+from autoclip.pipeline import telemetry
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,10 @@ def embed_texts(texts: list[str]) -> list[Optional[list[float]]]:
             )
         except Exception as e:
             logger.warning("embedding batch failed: %s", e)
+            telemetry.record_failure("embedding", str(e))
             continue
+        usage = getattr(resp, "usage", None)
+        telemetry.record_usage("embedding", prompt=getattr(usage, "prompt_tokens", 0) or 0)
         for i, item in zip(chunk, sorted(resp.data, key=lambda d: d.index)):
             vec = [float(x) for x in item.embedding]
             if len(vec) != EMBEDDING_DIM:
@@ -55,10 +59,19 @@ def embed_text(text: str) -> Optional[list[float]]:
     return embed_texts([text])[0]
 
 
+def moment_embed_text(m: Moment) -> str:
+    """What a moment's embedding represents: what is seen + what is said in
+    its own window. (Transcript-only embeddings collapsed distinct scenes
+    when transcripts were wrong/shared — live: 229 → 52 moments.)"""
+    desc = (m.description or "").strip()
+    said = (m.transcript or "").strip()
+    return f"{desc}\nDialogue: {said}" if desc and said else (desc or said)
+
+
 def embed_moments(moments: Iterable[Moment]) -> None:
     """Set .embedding on every moment that lacks one, in one batched call."""
-    todo = [m for m in moments if m.embedding is None and (m.transcript or m.description or "").strip()]
-    vecs = embed_texts([(m.transcript or m.description) for m in todo])
+    todo = [m for m in moments if m.embedding is None and moment_embed_text(m)]
+    vecs = embed_texts([moment_embed_text(m) for m in todo])
     for m, v in zip(todo, vecs):
         m.embedding = v
 
@@ -72,13 +85,29 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return s / (na * nb) if na and nb else 0.0
 
 
-def cosine_sim_dedupe(moments: list[Moment], threshold: float = 0.92) -> list[Moment]:
-    """Drop moments whose embedding nearly matches an earlier kept moment."""
+def cosine_sim_dedupe(moments: list[Moment], threshold: float = 0.92,
+                      max_gap_s: Optional[float] = None) -> list[Moment]:
+    """Drop moments whose embedding nearly matches an already-kept moment.
+
+    Moments are considered in descending convergence_score so the stronger
+    of a duplicate pair survives. With `max_gap_s`, only moments whose
+    centres are within that many seconds can be duplicates — a near-identical
+    description 40 minutes later is a different scene, not a duplicate.
+    """
+    def centre(m: Moment) -> float:
+        return (m.start + m.end) / 2.0
+
     kept: list[Moment] = []
-    for m in moments:
+    for m in sorted(moments, key=lambda x: -x.convergence_score):
         if m.embedding is None:
             kept.append(m)
             continue
-        if not any(k.embedding and _cosine(m.embedding, k.embedding) >= threshold for k in kept):
+        dup = any(
+            k.embedding
+            and (max_gap_s is None or abs(centre(k) - centre(m)) <= max_gap_s)
+            and _cosine(m.embedding, k.embedding) >= threshold
+            for k in kept
+        )
+        if not dup:
             kept.append(m)
     return kept

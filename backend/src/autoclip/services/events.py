@@ -1,9 +1,19 @@
 """Redis pub/sub for live pipeline events.
 
-Publishers (chunk_analyzer, global_fusion) call publish_*() to fire events
-into the `pipeline:{video_id}` channel. The SSE endpoint subscribes to
-that channel and pipes events to the frontend, so users see moments and
-clips appear live as the pipeline runs.
+Publishers call publish_*() to fire events into the `pipeline:{video_id}`
+channel; GET /api/chat/stream/{video_id} pipes them to the browser.
+
+Event types:
+  analysis_started   {eta_seconds, duration}          background job accepted
+  analysis_progress  {stage, progress, chunks_done, chunks_total, eta_seconds}
+  chunk_done         {chunk_index, moment_count, moments}   (chunk_analyzer)
+  moments            {moments}                               (global_fusion)
+  analysis_done      {moment_count}
+  analysis_failed    {message}
+  clip_ready         {clip}                                   (production)
+  clips_done         {clip_count}
+The stream never closes itself on an event — the client decides. (It used to
+close on "done", which production fired even during analysis.)
 
 If REDIS_URL is unset (local dev without Redis), publish_* is a no-op
 and SSE simply returns no incremental events.
@@ -87,7 +97,21 @@ def publish_clip_ready(video_id: str, clip) -> None:
 
 
 def publish_done(video_id: str, summary: dict) -> None:
-    publish(video_id, "done", summary)
+    """Deprecated: kept for old callers; prefer clips_done / analysis_done."""
+    publish(video_id, "clips_done", summary)
+
+
+def publish_analysis(video_id: str, event_type: str, payload: dict) -> None:
+    """analysis_started / analysis_progress / analysis_done / analysis_failed."""
+    publish(video_id, event_type, payload)
+
+
+def get_redis():
+    """Shared sync Redis client, or None when REDIS_URL is unset."""
+    try:
+        return _get_sync()
+    except Exception:
+        return None
 
 
 async def subscribe(video_id: str, stop_event: Optional[asyncio.Event] = None) -> AsyncIterator[dict]:

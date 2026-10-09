@@ -1,0 +1,514 @@
+{
+ "slug": "doctorow_39c3",
+ "title": "Cory Doctorow - A post-American, enshittification-resistant internet (39C3, 2025)",
+ "license_note": "CC BY 4.0 - clips may be published (e.g. on the landing page) with attribution",
+ "license": "CC BY 4.0",
+ "license_url": "https://creativecommons.org/licenses/by/4.0/",
+ "source_url": "https://media.ccc.de/v/39c3-a-post-american-enshittification-resistant-internet",
+ "attribution": "Cory Doctorow, \"A post-American, enshittification-resistant internet\", 39C3 (Chaos Communication Congress, Hamburg, Dec 2025). Recording via media.ccc.de, licensed CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Clips trimmed/reframed.",
+ "source_hint": "media.ccc.de event 39c3-1421, file 39c3-1421-eng-A_post-American_enshittification-resistant_internet.mp4 (1080p, 3672.68s); local 720p transcode /home/anirudh/Videos/autoclip-bench/doctorow_39c3.mp4; not distributed with this repo",
+ "duration": 3672.68,
+ "film_end": 3660,
+ "chunking": {
+  "chunk_s": 120,
+  "overlap_s": 10
+ },
+ "labeling": {
+  "method": "one human pass: 306 frames at 12s on contact sheets + independent Gemini transcript (21 x 3-min mono segments, per-segment drift rescaled); single speaker on stage with collage slides, Q&A from ~52:00; timing ~±5s",
+  "grade": "3 = appears in a query's ranked truth; 2 = solid standalone clip; 1 = needs context",
+  "tags": "first tag is the labeller's primary category; topic tags (enshittification, ai) added so the topic query is answerable",
+  "length/frame null": "not specified in the prompt; excluded from that adherence metric",
+  "slides": "projected collages are Doctorow's remixes; on-screen credits show CC BY / CC BY-SA sources - keep attribution on published clips"
+ },
+ "moments": [
+  {
+   "id": "m02",
+   "start": 72,
+   "end": 132,
+   "tags": [
+    "story",
+    "insightful"
+   ],
+   "grade": 1,
+   "note": "Day one at EFF: crashing the Broadcast Flag meeting, suing the FCC and winning"
+  },
+  {
+   "id": "m03",
+   "start": 160,
+   "end": 218,
+   "tags": [
+    "controversial",
+    "quotable",
+    "funny"
+   ],
+   "grade": 2,
+   "note": "The door to a good internet is open a crack, and the guy who unlocked it is Donald Trump; 'when life gives you SARS, make sarsaparilla'"
+  },
+  {
+   "id": "m04",
+   "start": 248,
+   "end": 292,
+   "tags": [
+    "funny",
+    "controversial",
+    "heated"
+   ],
+   "grade": 2,
+   "note": "Trump's coalition roll-call ending in libertarians with 'low-tax brainworms' who'd vote for Mussolini; laughter and applause"
+  },
+  {
+   "id": "m05",
+   "start": 372,
+   "end": 424,
+   "tags": [
+    "insightful",
+    "quotable"
+   ],
+   "grade": 2,
+   "note": "What anti-circumvention law actually criminalises; 'felony contempt of business model'"
+  },
+  {
+   "id": "m06",
+   "start": 568,
+   "end": 628,
+   "tags": [
+    "story",
+    "insightful"
+   ],
+   "grade": 3,
+   "note": "CAFTA story: 'they won't take our coffee unless we give them anti-circumvention' explains why every country caved"
+  },
+  {
+   "id": "m07",
+   "start": 626,
+   "end": 660,
+   "tags": [
+    "funny",
+    "quotable"
+   ],
+   "grade": 2,
+   "note": "'We have tariffs now' - if they burn your house down anyway you can stop obeying; 'happy liberation day?'"
+  },
+  {
+   "id": "m08",
+   "start": 655,
+   "end": 700,
+   "tags": [
+    "funny",
+    "controversial"
+   ],
+   "grade": 2,
+   "note": "Give Trump everything except Greenland - 'he'll take fucking Greenland'; 'like all the best Americans, I am Canadian'"
+  },
+  {
+   "id": "m09",
+   "start": 698,
+   "end": 725,
+   "tags": [
+    "funny",
+    "quotable"
+   ],
+   "grade": 3,
+   "note": "Retaliatory tariffs are like punching yourself in the face and hoping the downstairs neighbour says ouch"
+  },
+  {
+   "id": "m11",
+   "start": 852,
+   "end": 910,
+   "tags": [
+    "insightful",
+    "enshittification"
+   ],
+   "grade": 3,
+   "note": "Apple's 30% App Store tax ($100bn/yr): Finnish geeks with a jailbreak dongle could undercut it by 90%"
+  },
+  {
+   "id": "m12",
+   "start": 941,
+   "end": 972,
+   "tags": [
+    "quotable",
+    "heated",
+    "enshittification"
+   ],
+   "grade": 3,
+   "note": "'Your margin is my opportunity'; every pirate wants to be an admiral; 'move fast and break kings!' to applause"
+  },
+  {
+   "id": "m13",
+   "start": 990,
+   "end": 1028,
+   "tags": [
+    "funny",
+    "controversial"
+   ],
+   "grade": 2,
+   "note": "Grudging respect for the USTR; 'not an accelerationist, but not exactly not an accelerationist... is Trump a comrade?'"
+  },
+  {
+   "id": "m15",
+   "start": 1163,
+   "end": 1215,
+   "tags": [
+    "controversial",
+    "heated"
+   ],
+   "grade": 2,
+   "note": "Apple pulls ICEBlock and classifies ICE officers as a protected class; technologists fleeing the US"
+  },
+  {
+   "id": "m16",
+   "start": 1255,
+   "end": 1290,
+   "tags": [
+    "heated",
+    "funny",
+    "controversial",
+    "ai"
+   ],
+   "grade": 3,
+   "note": "'It beats the shit out of' burning hundreds of billions on AI data centres for defective chatbots; big applause"
+  },
+  {
+   "id": "m17",
+   "start": 1322,
+   "end": 1356,
+   "tags": [
+    "funny",
+    "quotable",
+    "controversial",
+    "enshittification"
+   ],
+   "grade": 3,
+   "note": "Microsoft cuts off the ICC's Outlook: 'in a he-said, Clippy-said... I know who I believe'"
+  },
+  {
+   "id": "m19",
+   "start": 1441,
+   "end": 1476,
+   "tags": [
+    "story"
+   ],
+   "grade": 1,
+   "note": "John Deere remotely bricks tractors looted from Ukraine - and could brick most tractors in the world"
+  },
+  {
+   "id": "m20",
+   "start": 1569,
+   "end": 1610,
+   "tags": [
+    "insightful",
+    "quotable",
+    "enshittification"
+   ],
+   "grade": 3,
+   "note": "Digital sovereignty without migration tools is 'housing in East Berlin for people who live in West Berlin'; seize the means of computation"
+  },
+  {
+   "id": "m23",
+   "start": 1893,
+   "end": 1935,
+   "tags": [
+    "insightful",
+    "quotable"
+   ],
+   "grade": 2,
+   "note": "Free software as a commons, like structural engineering: no secrecy in the maths that keeps buildings - or pacemakers - up"
+  },
+  {
+   "id": "m24",
+   "start": 1933,
+   "end": 1970,
+   "tags": [
+    "insightful",
+    "quotable"
+   ],
+   "grade": 3,
+   "note": "'Software is not an asset, software is a liability' - commons-based production spreads the liability"
+  },
+  {
+   "id": "m25",
+   "start": 1974,
+   "end": 2008,
+   "tags": [
+    "funny",
+    "controversial",
+    "ai"
+   ],
+   "grade": 2,
+   "note": "Tech bosses 'horny' for chatbots that shit out code: tech debt at scale"
+  },
+  {
+   "id": "m26",
+   "start": 2010,
+   "end": 2060,
+   "tags": [
+    "funny",
+    "insightful",
+    "quotable",
+    "ai"
+   ],
+   "grade": 2,
+   "note": "The chatbot can't do your job but the AI salesman can convince your boss; bosses fear they hold a Fisher-Price steering wheel"
+  },
+  {
+   "id": "m27",
+   "start": 2064,
+   "end": 2115,
+   "tags": [
+    "story",
+    "funny",
+    "ai"
+   ],
+   "grade": 3,
+   "note": "Striking Hollywood writer: prompting AI is like studio notes - 'make me E.T. but about a dog' - minus being called an idiot suit"
+  },
+  {
+   "id": "m28",
+   "start": 2129,
+   "end": 2165,
+   "tags": [
+    "funny",
+    "controversial",
+    "ai",
+    "enshittification"
+   ],
+   "grade": 2,
+   "note": "Zuckerberg's chatbot friends: for Zuck your friends are the problem - 'a social network with no social'"
+  },
+  {
+   "id": "m29",
+   "start": 2176,
+   "end": 2236,
+   "tags": [
+    "controversial",
+    "heated",
+    "funny"
+   ],
+   "grade": 2,
+   "note": "Billionaires are solipsists: Musk's NPCs, EA's imaginary humans, Trump's 'science without scientists' that won't tell him not to inject bleach"
+  },
+  {
+   "id": "m30",
+   "start": 2316,
+   "end": 2356,
+   "tags": [
+    "heated",
+    "funny",
+    "quotable"
+   ],
+   "grade": 3,
+   "note": "Energy crisis made the EU leap on solar; the balcony-solar objector can 'fold it until it's all corners' - applause"
+  },
+  {
+   "id": "m31",
+   "start": 2525,
+   "end": 2565,
+   "tags": [
+    "funny",
+    "quotable"
+   ],
+   "grade": 2,
+   "note": "US consumption collapse: only so many Lambos and Sub-Zero freezers 'even the most guillotineable plute' can own"
+  },
+  {
+   "id": "m32",
+   "start": 2570,
+   "end": 2630,
+   "tags": [
+    "controversial",
+    "funny"
+   ],
+   "grade": 2,
+   "note": "Dieselgate and German carmakers renting you your accelerator pedal and high beams; 'let me cook!'"
+  },
+  {
+   "id": "m33",
+   "start": 2652,
+   "end": 2692,
+   "tags": [
+    "emotional",
+    "heated"
+   ],
+   "grade": 2,
+   "note": "Medtronic's parts-pairing ventilators during COVID lockdowns: 'It was lethal. It killed people.'"
+  },
+  {
+   "id": "m34",
+   "start": 2712,
+   "end": 2772,
+   "tags": [
+    "story",
+    "funny",
+    "heated"
+   ],
+   "grade": 3,
+   "note": "Newag bricks its own trains, sues the Dragon Sector hackers; 'won't someone think of the poor train saboteurs?'"
+  },
+  {
+   "id": "m35",
+   "start": 2772,
+   "end": 2812,
+   "tags": [
+    "quotable",
+    "insightful",
+    "enshittification"
+   ],
+   "grade": 3,
+   "note": "Anti-circumvention made an 'enshittogenic environment' that ushered in the Enshittocene; time to seize the means of computation"
+  },
+  {
+   "id": "m36",
+   "start": 2821,
+   "end": 2850,
+   "tags": [
+    "funny",
+    "quotable",
+    "enshittification"
+   ],
+   "grade": 3,
+   "note": "Isn't it weird you must pick a network to talk to someone? '1985 called, and it wants its walled gardens back!'"
+  },
+  {
+   "id": "m37",
+   "start": 2885,
+   "end": 2932,
+   "tags": [
+    "emotional",
+    "quotable"
+   ],
+   "grade": 2,
+   "note": "After 24 years, the door is open a crack: 'not optimistic - fuck optimism'; hope is a discipline, don't despair"
+  },
+  {
+   "id": "m40",
+   "start": 3118,
+   "end": 3138,
+   "tags": [
+    "funny"
+   ],
+   "grade": 1,
+   "note": "Q&A rules: one part, not a comment, 'almost without exception it's not about AI'"
+  },
+  {
+   "id": "m41",
+   "start": 3270,
+   "end": 3330,
+   "tags": [
+    "story",
+    "insightful"
+   ],
+   "grade": 2,
+   "note": "Non-technical people hack when it pays: the nursery worker with a two-SIM phone"
+  },
+  {
+   "id": "m43",
+   "start": 3465,
+   "end": 3515,
+   "tags": [
+    "insightful",
+    "quotable"
+   ],
+   "grade": 2,
+   "note": "Lawmakers needn't understand microbiology to give us safe tap water; 'technology is very interested in you'"
+  }
+ ],
+ "queries": [
+  {
+   "id": "q_funny",
+   "prompt": "funniest moment",
+   "count": 3,
+   "length": 30,
+   "frame": "9:16",
+   "tags": [
+    "funny"
+   ],
+   "truth": [
+    "m27",
+    "m17",
+    "m09"
+   ],
+   "message": "Analyze this talk and give me 3 of the funniest clips, 30 seconds each, 9:16"
+  },
+  {
+   "id": "q_insightful",
+   "prompt": "the most insightful take",
+   "count": 1,
+   "length": 45,
+   "frame": null,
+   "tags": [
+    "insightful"
+   ],
+   "truth": [
+    "m24",
+    "m20",
+    "m06"
+   ],
+   "message": "The most insightful take, 45 seconds"
+  },
+  {
+   "id": "q_heated",
+   "prompt": "a heated rant",
+   "count": 1,
+   "length": 30,
+   "frame": "1:1",
+   "tags": [
+    "heated"
+   ],
+   "truth": [
+    "m30",
+    "m16",
+    "m12"
+   ],
+   "message": "A heated, fiery rant, 30 seconds, 1:1"
+  },
+  {
+   "id": "q_story",
+   "prompt": "a great story",
+   "count": 1,
+   "length": 60,
+   "frame": "16:9",
+   "tags": [
+    "story"
+   ],
+   "truth": [
+    "m06",
+    "m27",
+    "m34"
+   ],
+   "message": "A great story from the talk, 60 seconds, 16:9"
+  },
+  {
+   "id": "q_quote",
+   "prompt": "the best quote",
+   "count": 1,
+   "length": 15,
+   "frame": null,
+   "tags": [
+    "quotable"
+   ],
+   "truth": [
+    "m36",
+    "m12",
+    "m09"
+   ],
+   "message": "The best quote, 15 seconds"
+  },
+  {
+   "id": "q_topic",
+   "prompt": "a moment about enshittification and Big Tech",
+   "count": 1,
+   "length": null,
+   "frame": null,
+   "tags": [
+    "enshittification"
+   ],
+   "truth": [
+    "m35",
+    "m11",
+    "m36"
+   ],
+   "message": "A moment about enshittification and Big Tech"
+  }
+ ]
+}

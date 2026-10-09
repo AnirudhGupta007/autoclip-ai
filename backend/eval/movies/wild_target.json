@@ -1,0 +1,494 @@
+{
+ "slug": "wild_target",
+ "title": "Wild Target (2010)",
+ "license_note": "copyrighted film — eval only, footage never published",
+ "source_hint": "YouTube upload sbmd6aMyS84 (5869.28s incl. credits); not distributed with this repo",
+ "duration": 5869.28,
+ "film_end": 5600,
+ "chunking": {
+  "chunk_s": 120,
+  "overlap_s": 10
+ },
+ "labeling": {
+  "method": "one human pass: 489 frames at 12s + denser sheets for key scenes + independent transcript; visual timing authoritative (transcript drifts ~±20s)",
+  "grade": "3 = appears in a query's ranked truth; 2 = solid standalone clip; 1 = needs story context",
+  "tags": "first tag is the labeller's primary category; extra tags (shot_at, one_liner, ...) added so each query's tag set is answerable",
+  "length/frame null": "not specified in the prompt; excluded from that adherence metric"
+ },
+ "moments": [
+  {
+   "id": "m01",
+   "start": 100,
+   "end": 150,
+   "tags": [
+    "funny",
+    "one_liner"
+   ],
+   "grade": 2,
+   "note": "Victor's deadpan French-tape lesson: he is a professional assassin"
+  },
+  {
+   "id": "m02",
+   "start": 250,
+   "end": 292,
+   "tags": [
+    "dialogue"
+   ],
+   "grade": 1,
+   "note": "Mother gives him a scrapbook of his kills and pushes for a grandson"
+  },
+  {
+   "id": "m03",
+   "start": 628,
+   "end": 672,
+   "tags": [
+    "funny",
+    "one_liner"
+   ],
+   "grade": 3,
+   "note": "Rose, in disguise, haggles Ferguson up to a million"
+  },
+  {
+   "id": "m04",
+   "start": 745,
+   "end": 790,
+   "tags": [
+    "funny"
+   ],
+   "grade": 2,
+   "note": "Ferguson gloats over his Rembrandt, then sees it is a fake"
+  },
+  {
+   "id": "m05",
+   "start": 1165,
+   "end": 1195,
+   "tags": [
+    "dialogue"
+   ],
+   "grade": 1,
+   "note": "Mother scolds Victor for sparing Rose"
+  },
+  {
+   "id": "m06",
+   "start": 1258,
+   "end": 1318,
+   "tags": [
+    "action",
+    "tense",
+    "shot_at"
+   ],
+   "grade": 3,
+   "note": "Car-park ambush in Rose's Mini; shots fired, Tony grabs a gun and fires"
+  },
+  {
+   "id": "m07",
+   "start": 1320,
+   "end": 1365,
+   "tags": [
+    "funny"
+   ],
+   "grade": 2,
+   "note": "Nervous Tony holds the gun on Victor"
+  },
+  {
+   "id": "m08",
+   "start": 1520,
+   "end": 1580,
+   "tags": [
+    "emotional",
+    "romantic"
+   ],
+   "grade": 2,
+   "note": "Tearful Rose begs Victor for protection"
+  },
+  {
+   "id": "m09",
+   "start": 1645,
+   "end": 1705,
+   "tags": [
+    "action",
+    "funny"
+   ],
+   "grade": 2,
+   "note": "Escape from the car park; crash, Tony lands on the windscreen"
+  },
+  {
+   "id": "m10",
+   "start": 1712,
+   "end": 1765,
+   "tags": [
+    "funny"
+   ],
+   "grade": 2,
+   "note": "Hotel check-in as Smith, Smith and Tony; one room"
+  },
+  {
+   "id": "m11",
+   "start": 2010,
+   "end": 2070,
+   "tags": [
+    "romantic"
+   ],
+   "grade": 2,
+   "note": "Hotel bar: Rose flirts with the barman and orders a huge round"
+  },
+  {
+   "id": "m12",
+   "start": 2160,
+   "end": 2212,
+   "tags": [
+    "tense"
+   ],
+   "grade": 2,
+   "note": "Ferguson's quietly menacing speech to Mike"
+  },
+  {
+   "id": "m13",
+   "start": 2412,
+   "end": 2460,
+   "tags": [
+    "funny",
+    "one_liner"
+   ],
+   "grade": 2,
+   "note": "Ferguson hires rival hitman Dixon, who names Victor from a vague description"
+  },
+  {
+   "id": "m14",
+   "start": 2528,
+   "end": 2588,
+   "tags": [
+    "tense",
+    "action"
+   ],
+   "grade": 2,
+   "note": "Mike sneaks into the suite with a gun and finds Tony in the bath"
+  },
+  {
+   "id": "m15",
+   "start": 2585,
+   "end": 2640,
+   "tags": [
+    "action",
+    "shot_at",
+    "tense"
+   ],
+   "grade": 3,
+   "note": "Mike tries to drown Tony; Tony shoots his ear off"
+  },
+  {
+   "id": "m16",
+   "start": 2720,
+   "end": 2780,
+   "tags": [
+    "action",
+    "shot_at",
+    "tense"
+   ],
+   "grade": 3,
+   "note": "Red Mini car chase through the City with gunfire"
+  },
+  {
+   "id": "m17",
+   "start": 2780,
+   "end": 2832,
+   "tags": [
+    "action"
+   ],
+   "grade": 2,
+   "note": "Chase climax: pram near-miss, pursuers crash"
+  },
+  {
+   "id": "m18",
+   "start": 2912,
+   "end": 2962,
+   "tags": [
+    "funny"
+   ],
+   "grade": 3,
+   "note": "Victor's absurd apprenticeship offer to Tony"
+  },
+  {
+   "id": "m19",
+   "start": 3247,
+   "end": 3300,
+   "tags": [
+    "funny"
+   ],
+   "grade": 2,
+   "note": "Victor's house rules at dinner"
+  },
+  {
+   "id": "m20",
+   "start": 3318,
+   "end": 3355,
+   "tags": [
+    "funny"
+   ],
+   "grade": 2,
+   "note": "2:45 a.m.: Rose makes Victor turn her bed to face south"
+  },
+  {
+   "id": "m21",
+   "start": 3450,
+   "end": 3510,
+   "tags": [
+    "emotional",
+    "one_liner"
+   ],
+   "grade": 2,
+   "note": "Garden row: Rose attacks Victor's over-careful life"
+  },
+  {
+   "id": "m22",
+   "start": 3612,
+   "end": 3672,
+   "tags": [
+    "funny"
+   ],
+   "grade": 3,
+   "note": "Victor awkwardly asks bath-bound Tony if he is confusing him"
+  },
+  {
+   "id": "m23",
+   "start": 3880,
+   "end": 3940,
+   "tags": [
+    "romantic"
+   ],
+   "grade": 3,
+   "note": "Late-night foot massage; Rose admits she likes being protected"
+  },
+  {
+   "id": "m24",
+   "start": 4005,
+   "end": 4065,
+   "tags": [
+    "tense",
+    "funny"
+   ],
+   "grade": 2,
+   "note": "Victor's mother stalks Rose through the dark house"
+  },
+  {
+   "id": "m25",
+   "start": 4180,
+   "end": 4240,
+   "tags": [
+    "romantic"
+   ],
+   "grade": 3,
+   "note": "Rose in Tony's bed admits she loves Victor"
+  },
+  {
+   "id": "m26",
+   "start": 4340,
+   "end": 4385,
+   "tags": [
+    "funny"
+   ],
+   "grade": 3,
+   "note": "Dixon's goon demands the dead painter's address"
+  },
+  {
+   "id": "m27",
+   "start": 4445,
+   "end": 4495,
+   "tags": [
+    "emotional"
+   ],
+   "grade": 2,
+   "note": "Rose and Tony surprise Victor with a birthday cake"
+  },
+  {
+   "id": "m28",
+   "start": 4575,
+   "end": 4630,
+   "tags": [
+    "romantic"
+   ],
+   "grade": 2,
+   "note": "Victor and Rose in bed on his birthday"
+  },
+  {
+   "id": "m29",
+   "start": 4760,
+   "end": 4815,
+   "tags": [
+    "emotional",
+    "tense"
+   ],
+   "grade": 3,
+   "note": "Rose finds the scrapbook with her own photo crossed out"
+  },
+  {
+   "id": "m30",
+   "start": 4925,
+   "end": 4975,
+   "tags": [
+    "dialogue",
+    "tense",
+    "one_liner"
+   ],
+   "grade": 3,
+   "note": "Rose holds them at gunpoint: liar, killer, thief - made for each other"
+  },
+  {
+   "id": "m31",
+   "start": 5220,
+   "end": 5270,
+   "tags": [
+    "funny"
+   ],
+   "grade": 2,
+   "note": "Barn shooting practice; Tony is a natural"
+  },
+  {
+   "id": "m32",
+   "start": 5400,
+   "end": 5450,
+   "tags": [
+    "tense",
+    "shot_at",
+    "romantic",
+    "action"
+   ],
+   "grade": 3,
+   "note": "Dixon orders Victor to kill Rose; he turns and shoots instead"
+  },
+  {
+   "id": "m33",
+   "start": 5450,
+   "end": 5490,
+   "tags": [
+    "funny",
+    "one_liner",
+    "action"
+   ],
+   "grade": 2,
+   "note": "Victor's mother arrives armed to save the day"
+  },
+  {
+   "id": "m34",
+   "start": 5490,
+   "end": 5530,
+   "tags": [
+    "action",
+    "shot_at",
+    "funny",
+    "one_liner"
+   ],
+   "grade": 3,
+   "note": "Dixon's old borrowed gun backfires and kills him"
+  },
+  {
+   "id": "m35",
+   "start": 5545,
+   "end": 5600,
+   "tags": [
+    "emotional"
+   ],
+   "grade": 2,
+   "note": "Burial and 'three years later' epilogue"
+  }
+ ],
+ "queries": [
+  {
+   "id": "q_funny",
+   "prompt": "funniest moment",
+   "count": 4,
+   "length": 30,
+   "frame": "9:16",
+   "tags": [
+    "funny"
+   ],
+   "truth": [
+    "m18",
+    "m22",
+    "m26"
+   ],
+   "message": "Analyze this movie and give me 4 of the funniest clips, 30 seconds each, 9:16"
+  },
+  {
+   "id": "q_action",
+   "prompt": "an action scene",
+   "count": 1,
+   "length": 45,
+   "frame": "16:9",
+   "tags": [
+    "action"
+   ],
+   "truth": [
+    "m16",
+    "m15",
+    "m06"
+   ],
+   "message": "Give me an action scene, 45 seconds, 16:9"
+  },
+  {
+   "id": "q_tense",
+   "prompt": "the most tense moment",
+   "count": 1,
+   "length": 20,
+   "frame": "1:1",
+   "tags": [
+    "tense"
+   ],
+   "truth": [
+    "m32",
+    "m06",
+    "m30"
+   ],
+   "message": "The most tense moment, 20 seconds, 1:1"
+  },
+  {
+   "id": "q_emotional",
+   "prompt": "an emotional or romantic moment",
+   "count": 1,
+   "length": 30,
+   "frame": null,
+   "tags": [
+    "emotional",
+    "romantic"
+   ],
+   "truth": [
+    "m23",
+    "m29",
+    "m25"
+   ],
+   "message": "An emotional or romantic moment, 30 seconds"
+  },
+  {
+   "id": "q_shot_at",
+   "prompt": "a clip where someone gets shot at",
+   "count": 1,
+   "length": null,
+   "frame": null,
+   "tags": [
+    "shot_at"
+   ],
+   "truth": [
+    "m06",
+    "m15",
+    "m34"
+   ],
+   "message": "A clip where someone gets shot at"
+  },
+  {
+   "id": "q_one_liner",
+   "prompt": "the best one-liner",
+   "count": 1,
+   "length": 15,
+   "frame": null,
+   "tags": [
+    "one_liner"
+   ],
+   "truth": [
+    "m03",
+    "m30",
+    "m34"
+   ],
+   "message": "The best one-liner, 15 seconds"
+  }
+ ]
+}

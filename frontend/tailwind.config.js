@@ -53,6 +53,11 @@ export default {
         22: '5.5rem',
         30: '7.5rem',
       },
+      // `white/8`-style modifiers are used across landing + studio; 8 isn't in
+      // Tailwind's default opacity scale, so those classes silently vanished.
+      opacity: {
+        8: '0.08',
+      },
       borderRadius: {
         '4xl': '2rem',
       },

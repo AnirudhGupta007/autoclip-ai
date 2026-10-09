@@ -1,0 +1,10 @@
+run,clip_id,query_id,rank,title,start,end,asked_len,delivered_len,len_ok_10,len_ok_25,asked_frame,delivered_res,aspect_ok,human_moment,human_tags,tag_hit,truth_hit,credits,has_audio,black_bar_frac,has_ass,captions_visible,probed
+1,7893c88f8fec,q_funny,1,Calm Walk Past a Fallen Body,87.5,117.5,30,30.766009,True,True,9:16,1080x1920,True,m01,funny;one_liner,True,False,False,True,0.2427083333333333,True,False,True
+1,b2d7e1134105,q_funny,2,Gun Turn: Parrot's Gaze,179.25,209.25,30,32.066009,True,True,9:16,1080x1920,True,,,False,False,False,True,0.2427083333333333,True,False,True
+1,66880b36d78e,q_funny,3,Fall to the Ground,1372.5,1402.5,30,31.347007,True,True,9:16,1080x1920,True,,,False,False,False,True,0.2427083333333333,True,False,True
+1,a3cca993fd30,q_funny,4,"Grateful Moment, Cut Short",3872.0,3902.0,30,30.859002,True,True,9:16,1080x1920,True,m23,romantic,False,False,False,True,0.24375000000000002,True,False,True
+1,803e19f8ef20,q_action,1,Pick Up the Gun—Find Him Now,3736.5,3781.5,45,46.13805,True,True,16:9,1280x720,True,,,False,False,False,True,0.24562499999999998,True,False,True
+1,7f81288706ce,q_tense,1,Dramatic Escape Through Broken Window,4864.25,4884.25,20,22.825011,False,True,1:1,1080x1080,True,,,False,False,False,True,0.24444444444444446,True,False,True
+1,7ff56a886204,q_emotional,1,"Guns Down, Touch Lost – Game Over",610.0,640.0,30,30.279002,True,True,,1080x1920,,,,False,False,False,True,0.24375000000000002,True,False,True
+1,3e6fc85fca51,q_shot_at,1,Cat's Out of the Bag: Clean Your Weapon!,468.25,498.25,,31.462993,,,,1080x1920,,,,False,False,False,True,0.24375000000000002,True,False,True
+1,992162eb0f9c,q_one_liner,1,"I Choose, I Chose, I Have Chosen",5159.5,5174.5,15,16.416016,True,True,,1080x1920,,,,False,False,False,True,0.2427083333333333,True,False,True

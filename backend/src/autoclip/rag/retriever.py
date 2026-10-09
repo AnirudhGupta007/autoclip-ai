@@ -48,15 +48,23 @@ def retrieve_moments(
     k: int = 10,
     min_convergence: float = 0.0,
     exclude_ranges: tuple = (),
+    video_ids: list[str] | None = None,
 ) -> list[Moment]:
-    """Semantic search over moments, optionally scoped to one video.
+    """Semantic search over moments, scoped to one video and/or a set of videos.
 
-    `video_id=None` searches across the whole library (used by /api/search
-    when no video is specified).
+    `video_ids` restricts the search to those videos (the caller's own
+    library — /api/search passes the user's video ids). An empty list means
+    "no videos" and returns nothing; None means no set restriction, which is
+    only safe together with `video_id` (callers must have checked ownership).
+    Each returned Moment carries a `video_id` attribute.
     """
+    if video_ids is not None and not video_ids:
+        return []
     filters_list = []
     if video_id:
         filters_list.append(MetadataFilter(key="video_id", value=video_id, operator=FilterOperator.EQ))
+    if video_ids is not None:
+        filters_list.append(MetadataFilter(key="video_id", value=list(video_ids), operator=FilterOperator.IN))
     if min_convergence > 0:
         filters_list.append(MetadataFilter(key="convergence_score", value=min_convergence, operator=FilterOperator.GTE))
     filters = MetadataFilters(filters=filters_list) if filters_list else None
@@ -70,8 +78,18 @@ def retrieve_moments(
         return []
 
     moments: list[Moment] = []
+    allowed = set(video_ids) if video_ids is not None else None
     for h in hits:
+        vid = h.node.metadata.get("video_id")
+        if video_id and vid != video_id:
+            continue  # defence in depth: never trust the store's filter alone
+        if allowed is not None and vid not in allowed:
+            continue
         m = _node_to_moment(h)
+        try:
+            m.video_id = vid
+        except AttributeError:
+            pass
         if exclude_ranges and _overlaps(m.start, m.end, list(exclude_ranges)):
             continue
         moments.append(m)

@@ -45,3 +45,6 @@ htmlcov/
 # production TLS (host-managed)
 certs/
 acme-www/
+
+# eval run outputs (may contain app text quoting copyrighted dialogue)
+reports/

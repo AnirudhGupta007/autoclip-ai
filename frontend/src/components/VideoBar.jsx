@@ -27,6 +27,7 @@ export default function VideoBar({ videoName, videoDuration, videoResolution, on
         </p>
       </div>
 
+      {onNewUpload && (<>
       <input
         ref={inputRef}
         type="file"
@@ -42,6 +43,7 @@ export default function VideoBar({ videoName, videoDuration, videoResolution, on
         <RotateCcw size={12} aria-hidden="true" />
         New video
       </button>
+      </>)}
     </div>
   )
 }

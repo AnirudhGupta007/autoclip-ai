@@ -17,11 +17,16 @@ COPY --from=builder /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
 COPY src/ ./src/
-RUN mkdir -p /app/uploads /app/outputs
+COPY alembic.ini ./
+COPY alembic/ ./alembic/
+COPY scripts/seed_demo.py ./scripts/seed_demo.py
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh && mkdir -p /app/uploads /app/outputs
 
 ENV UPLOAD_DIR=/app/uploads
 ENV OUTPUT_DIR=/app/outputs
 ENV PYTHONPATH=/app/src
 
 EXPOSE 8000
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["uvicorn", "autoclip.main:app", "--host", "0.0.0.0", "--port", "8000"]

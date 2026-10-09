@@ -109,6 +109,49 @@
   }
 }
 
+/* .text-gold-sheen uses this; Tailwind only emits its own `sheen` keyframes
+   when `animate-sheen` appears somewhere, so define it here unconditionally. */
+@keyframes sheen {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+/* Animated data-flow along SVG edges (pipeline glyph, agent graph). */
+.flow-dash {
+  stroke-dasharray: 6 40;
+  animation: flowdash 2.4s linear infinite;
+}
+.flow-dash-long {
+  stroke-dasharray: 10 14;
+  animation: flowdash 1.6s linear infinite;
+}
+@keyframes flowdash {
+  from { stroke-dashoffset: 46; }
+  to { stroke-dashoffset: 0; }
+}
+
+.pulse-dot {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pulsedot 2.2s ease-in-out infinite;
+}
+@keyframes pulsedot {
+  0%, 100% { opacity: 0.45; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.25); }
+}
+
+/* Pending "after" bar while results are being re-measured. */
+.shimmer-track {
+  background:
+    linear-gradient(90deg, transparent 0%, rgba(212,175,122,0.28) 50%, transparent 100%) 0 0 / 40% 100% no-repeat,
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.06) 0 6px, transparent 6px 10px);
+  animation: shimmer 2.6s cubic-bezier(0.22,1,0.36,1) infinite;
+}
+@keyframes shimmer {
+  0% { background-position: -60% 0, 0 0; }
+  100% { background-position: 160% 0, 0 0; }
+}
+
 /* "Scroll to watch" cue on the 3D hero */
 @keyframes scrollcue {
   0% { transform: translateY(-100%); }
@@ -125,4 +168,5 @@
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+  .flow-dash, .flow-dash-long { stroke-dasharray: none; }
 }

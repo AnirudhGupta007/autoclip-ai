@@ -1,50 +1,20 @@
 import { Component, Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { motion, useInView, useReducedMotion, useScroll, useTransform } from 'framer-motion'
+import { MotionConfig, motion, useInView, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import {
-  ArrowRight, Scissors, Search, Sparkles, Captions, Gauge, Layers,
-  Waves, Cpu, Database, Github,
+  ArrowRight, ArrowUpRight, Scissors, Search, Sparkles, Captions, Gauge, Layers,
+  Waves, Cpu, Database, Github, Play,
 } from 'lucide-react'
+import { Eyebrow, GITHUB_URL, Section, fadeUp } from '../components/landing/primitives'
+import Pipeline from '../components/landing/Pipeline'
+import AgentArchitecture from '../components/landing/AgentArchitecture'
+import Results from '../components/landing/Results'
+import Decisions from '../components/landing/Decisions'
+import TechStack from '../components/landing/TechStack'
+import Limits from '../components/landing/Limits'
 
 // three.js is ~600KB — keep it out of the main bundle
 const FilmScene = lazy(() => import('../components/landing/FilmScene'))
-
-const fadeUp = {
-  hidden: { opacity: 0, y: 22 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.7, ease: [0.22, 1, 0.36, 1] } },
-}
-
-const stagger = {
-  hidden: {},
-  show: { transition: { staggerChildren: 0.08 } },
-}
-
-function Section({ children, className = '', ...rest }) {
-  return (
-    <motion.section
-      variants={stagger}
-      initial="hidden"
-      whileInView="show"
-      viewport={{ once: true, margin: '-80px' }}
-      className={`relative mx-auto w-full max-w-6xl px-6 ${className}`}
-      {...rest}
-    >
-      {children}
-    </motion.section>
-  )
-}
-
-function Eyebrow({ children }) {
-  return (
-    <motion.p
-      variants={fadeUp}
-      className="mb-5 flex items-center gap-3 text-[11px] uppercase tracking-[0.32em] text-gold-600"
-    >
-      <span className="h-px w-8 bg-gold-700" />
-      {children}
-    </motion.p>
-  )
-}
 
 /* ── Navigation ─────────────────────────────────────────────── */
 function Nav() {
@@ -71,15 +41,22 @@ function Nav() {
           </span>
         </Link>
 
-        <div className="hidden items-center gap-9 text-sm text-platinum-muted md:flex">
-          <a href="#how" className="transition-colors duration-200 hover:text-platinum">How it works</a>
-          <a href="#craft" className="transition-colors duration-200 hover:text-platinum">Capabilities</a>
-          <a href="#engine" className="transition-colors duration-200 hover:text-platinum">Engine</a>
+        <div className="hidden items-center gap-8 text-sm text-platinum-muted lg:flex">
+          <a href="#pipeline" className="transition-colors duration-200 hover:text-platinum">How it works</a>
+          <a href="#agent" className="transition-colors duration-200 hover:text-platinum">Agent</a>
+          <a href="#results" className="transition-colors duration-200 hover:text-platinum">Results</a>
+          <a href="#decisions" className="transition-colors duration-200 hover:text-platinum">Engineering</a>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 sm:gap-3">
+          <Link
+            to="/login"
+            className="hidden px-2 text-sm text-platinum-muted transition-colors duration-200 hover:text-platinum sm:inline"
+          >
+            Log in
+          </Link>
           <a
-            href="https://github.com/AnirudhGupta007/autoclip-ai"
+            href={GITHUB_URL}
             target="_blank"
             rel="noreferrer"
             aria-label="Source on GitHub"
@@ -156,7 +133,7 @@ const STEPS = [
 ]
 
 /* ── Film journey (scroll-driven 3D) ────────────────────────── */
-const SOURCE_SECONDS = 3 * 3600 + 12 * 60 + 47
+const SOURCE_SECONDS = 1 * 3600 + 32 * 60 + 47
 const PROMPT = 'give me 5 funny clips under 30s for TikTok'
 
 const timecode = (s) =>
@@ -219,10 +196,10 @@ function HeroCopy() {
     <div className="text-center">
       <motion.p
         {...word(0.1)}
-        className="mx-auto mb-7 inline-flex items-center gap-2.5 rounded-full border border-white/10 bg-white/[0.04] px-4 py-1.5 text-[11px] uppercase tracking-[0.22em] text-platinum-muted backdrop-blur-sm"
+        className="mx-auto mb-7 inline-flex items-center gap-2.5 rounded-full border border-white/10 bg-white/[0.04] px-4 py-1.5 text-[10px] uppercase tracking-[0.16em] text-platinum-muted backdrop-blur-sm sm:text-[11px] sm:tracking-[0.22em]"
       >
         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-gold" />
-        Three hours in. Sixty seconds out.
+        Hours in. Seconds out.
       </motion.p>
       <h1 className="font-display text-display-xl">
         <span className="block text-platinum">
@@ -244,22 +221,36 @@ function HeroCopy() {
         {...word(0.95)}
         className="mx-auto mt-7 max-w-xl text-base leading-relaxed text-platinum-muted sm:text-lg"
       >
-        Upload long-form video. Ask in plain language for what you want —
-        a length, a format, a feeling. Get finished vertical clips,
-        captioned and scored, without touching a timeline.
+        AutoClip is an AI agent that watches your whole video, finds the moments
+        you ask for in plain English, and returns captioned, reframed short clips.
       </motion.p>
-      <motion.div {...word(1.1)} className="mt-10 flex flex-wrap items-center justify-center gap-4">
+      <motion.div {...word(1.1)} className="mt-9 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
         <Link
-          to="/studio"
-          className="group relative inline-flex items-center gap-2.5 overflow-hidden rounded-full bg-gold-sheen bg-[length:200%_auto] px-7 py-3.5 text-sm font-medium text-obsidian transition-all duration-500 ease-lux hover:bg-[position:80%_50%] hover:shadow-gold"
+          to="/demo"
+          className="group relative inline-flex items-center gap-2.5 overflow-hidden rounded-full bg-gold-sheen bg-[length:200%_auto] px-7 py-3.5 text-sm font-semibold text-obsidian transition-all duration-500 ease-lux hover:bg-[position:80%_50%] hover:shadow-gold"
         >
-          Start clipping
-          <ArrowRight size={16} className="transition-transform duration-300 ease-lux group-hover:translate-x-1" aria-hidden="true" />
+          <Play size={14} className="fill-current" aria-hidden="true" />
+          Try the live demo
         </Link>
-        <a
-          href="#how"
-          className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-obsidian/40 px-6 py-3.5 text-sm text-platinum-muted backdrop-blur-sm transition-all duration-300 ease-lux hover:border-white/25 hover:text-platinum"
+        <Link
+          to="/signup"
+          className="group inline-flex items-center gap-2 rounded-full border border-white/15 bg-obsidian/40 px-6 py-3.5 text-sm text-platinum backdrop-blur-sm transition-all duration-300 ease-lux hover:border-gold-700 hover:text-gold-300"
         >
+          Sign up
+          <ArrowRight size={15} className="transition-transform duration-300 ease-lux group-hover:translate-x-1" aria-hidden="true" />
+        </Link>
+      </motion.div>
+      <motion.div
+        {...word(1.22)}
+        className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-platinum-muted"
+      >
+        <Link to="/studio" className="inline-flex items-center gap-1.5 transition-colors duration-200 hover:text-gold-300">
+          Open Studio <ArrowUpRight size={14} aria-hidden="true" />
+        </Link>
+        <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 transition-colors duration-200 hover:text-gold-300">
+          <Github size={14} aria-hidden="true" /> Source
+        </a>
+        <a href="#how" className="transition-colors duration-200 hover:text-gold-300">
           See how it works
         </a>
       </motion.div>
@@ -407,7 +398,7 @@ function Engine() {
     <Section id="engine" className="py-24 sm:py-30">
       <div className="glass overflow-hidden rounded-3xl">
         <div className="grid lg:grid-cols-2">
-          <div className="p-10 sm:p-14">
+          <div className="p-7 sm:p-14">
             <Eyebrow>Under the hood</Eyebrow>
             <motion.h2 variants={fadeUp} className="font-display text-display-md text-platinum">
               Built like infrastructure, <span className="italic text-gold-400">not a wrapper.</span>
@@ -425,7 +416,7 @@ function Engine() {
               <motion.div
                 key={k}
                 variants={fadeUp}
-                className={`p-8 ${i % 2 === 0 ? 'sm:border-r' : ''} ${i < 2 ? 'border-b' : ''} border-white/8`}
+                className={`p-7 sm:p-8 ${i % 2 === 0 ? 'sm:border-r' : ''} ${i < 2 ? 'border-b' : ''} border-white/8`}
               >
                 <Icon size={16} className="mb-4 text-gold-600" aria-hidden="true" />
                 <p className="mb-1 text-[10px] uppercase tracking-[0.24em] text-platinum-dim">{k}</p>
@@ -448,24 +439,37 @@ function Closing() {
         Give it your longest video.
         <span className="block italic text-gold-sheen">Ask for the best minute.</span>
       </motion.h2>
-      <motion.div variants={fadeUp} className="mt-10">
+      <motion.div variants={fadeUp} className="mt-10 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
+        <Link
+          to="/demo"
+          className="group inline-flex items-center gap-2.5 rounded-full bg-gold-sheen bg-[length:200%_auto] px-8 py-4 text-sm font-semibold text-obsidian transition-all duration-500 ease-lux hover:bg-[position:80%_50%] hover:shadow-gold"
+        >
+          <Play size={14} className="fill-current" aria-hidden="true" />
+          Try the live demo
+        </Link>
         <Link
           to="/studio"
-          className="group inline-flex items-center gap-2.5 rounded-full bg-gold-sheen bg-[length:200%_auto] px-8 py-4 text-sm font-medium text-obsidian transition-all duration-500 ease-lux hover:bg-[position:80%_50%] hover:shadow-gold"
+          className="group inline-flex items-center gap-2.5 rounded-full border border-white/15 px-7 py-4 text-sm text-platinum transition-all duration-300 ease-lux hover:border-gold-700 hover:text-gold-300"
         >
           Open the Studio
           <ArrowRight size={16} className="transition-transform duration-300 ease-lux group-hover:translate-x-1" aria-hidden="true" />
         </Link>
       </motion.div>
+      <motion.p variants={fadeUp} className="mt-6 text-sm text-platinum-dim">
+        New here?{' '}
+        <Link to="/signup" className="text-gold-300 underline decoration-gold-700/50 underline-offset-4 hover:text-gold">Create an account</Link>
+        {' '}or read the code on{' '}
+        <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="text-gold-300 underline decoration-gold-700/50 underline-offset-4 hover:text-gold">GitHub</a>.
+      </motion.p>
     </Section>
   )
 }
 
 /* ── Footer with oversized wordmark ─────────────────────────── */
 const FOOTER_COLS = [
-  { title: 'Product', links: [['Open Studio', '/studio', true], ['How it works', '#how'], ['Capabilities', '#craft']] },
-  { title: 'Engine', links: [['LangGraph agents', '#engine'], ['Semantic retrieval', '#engine'], ['ffmpeg production', '#engine']] },
-  { title: 'Source', links: [['GitHub', 'https://github.com/AnirudhGupta007/autoclip-ai']] },
+  { title: 'Product', links: [['Live demo', '/demo', true], ['Sign up', '/signup', true], ['Log in', '/login', true], ['Open Studio', '/studio', true]] },
+  { title: 'Engine', links: [['How it works', '#pipeline'], ['Agent architecture', '#agent'], ['Results', '#results'], ['Engineering', '#decisions']] },
+  { title: 'Source', links: [['GitHub', GITHUB_URL], ['Evaluation method', `${GITHUB_URL}/blob/master/EVALUATION.md`]] },
 ]
 
 function Footer() {
@@ -476,8 +480,8 @@ function Footer() {
 
   return (
     <footer ref={ref} className="hairline relative mt-10 overflow-hidden">
-      <div className="mx-auto grid w-full max-w-6xl gap-10 px-6 pt-16 sm:grid-cols-[1.4fr_1fr_1fr_1fr]">
-        <div>
+      <div className="mx-auto grid w-full max-w-6xl grid-cols-2 gap-10 px-5 pt-16 sm:px-6 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
+        <div className="col-span-2 md:col-span-1">
           <p className="flex items-center gap-2 text-sm text-platinum">
             <Scissors size={14} className="text-gold" aria-hidden="true" />
             AutoClip — conversational video clipping
@@ -491,6 +495,14 @@ function Footer() {
               CC BY 3.0
             </a>
           </p>
+          <a
+            href={GITHUB_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/10 px-3.5 py-1.5 text-xs text-platinum-muted transition-colors duration-300 hover:border-gold-700 hover:text-gold-300"
+          >
+            <Github size={13} aria-hidden="true" /> AnirudhGupta007/autoclip-ai
+          </a>
         </div>
         {FOOTER_COLS.map(({ title, links }) => (
           <div key={title}>
@@ -506,7 +518,7 @@ function Footer() {
                       {...(href.startsWith('http') ? { target: '_blank', rel: 'noreferrer' } : {})}
                       className="inline-flex items-center gap-1.5 transition-colors duration-200 hover:text-gold-300"
                     >
-                      {href.startsWith('http') && <Github size={13} aria-hidden="true" />}
+                      {label === 'GitHub' && <Github size={13} aria-hidden="true" />}
                       {label}
                     </a>
                   )}
@@ -537,16 +549,24 @@ function Footer() {
 export default function Landing() {
   return (
     // overflow-x-clip, not -hidden: `hidden` makes this a scroll container and breaks the sticky canvas
-    <div className="relative min-h-dvh overflow-x-clip bg-obsidian">
-      <Nav />
-      <main>
-        <FilmJourney />
-        <Marquee />
-        <Craft />
-        <Engine />
-        <Closing />
-      </main>
-      <Footer />
-    </div>
+    <MotionConfig reducedMotion="user">
+      <div className="relative min-h-dvh overflow-x-clip bg-obsidian">
+        <Nav />
+        <main>
+          <FilmJourney />
+          <Marquee />
+          <Pipeline />
+          <AgentArchitecture />
+          <Results />
+          <Craft />
+          <Decisions />
+          <Engine />
+          <TechStack />
+          <Limits />
+          <Closing />
+        </main>
+        <Footer />
+      </div>
+    </MotionConfig>
   )
 }

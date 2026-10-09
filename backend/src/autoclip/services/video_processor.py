@@ -1,7 +1,9 @@
 """Video processing: cutting clips and auto-reframing."""
+from __future__ import annotations
+from typing import Optional
+
 import cv2
 import numpy as np
-from pathlib import Path
 from autoclip.utils.ffmpeg import cut_video, reframe_video, get_video_info
 from autoclip.config import EXPORT_FORMATS
 
@@ -11,50 +13,67 @@ face_cascade = cv2.CascadeClassifier(
 )
 
 
-def detect_face_position(video_path: str, sample_count: int = 5) -> int:
-    """
-    Detect dominant face x-position by sampling frames.
-    Returns crop x-offset for portrait reframe, or -1 if no face found.
+def face_center_x(
+    video_path: str,
+    start: float = 0.0,
+    end: Optional[float] = None,
+    sample_count: int = 15,
+    region: Optional[dict] = None,
+) -> Optional[float]:
+    """Robust horizontal face centre (source-pixel x) over [start, end].
+
+    Samples `sample_count` frames evenly across the window, takes the largest
+    plausible face in each (restricted to the letterbox `region` if given),
+    and returns the MEDIAN centre. One static crop centred on the median
+    keeps the subject in frame for the whole clip without the jitter a
+    per-frame track would add; outliers (a single false positive, a passer-by)
+    can't drag it the way the old 5-sample mean could. None if no faces.
     """
     cap = cv2.VideoCapture(video_path)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    if total_frames == 0:
+    try:
+        fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total <= 0:
+            return None
+        if end is None or end <= start:
+            end = total / fps
+        times = np.linspace(start + 0.2, max(start + 0.3, end - 0.2), sample_count)
+        centres: list[float] = []
+        for t in times:
+            cap.set(cv2.CAP_PROP_POS_MSEC, float(t) * 1000.0)
+            ok, frame = cap.read()
+            if not ok:
+                continue
+            ox, oy = 0, 0
+            if region:
+                ox, oy = region["x"], region["y"]
+                frame = frame[oy:oy + region["h"], ox:ox + region["w"]]
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            min_side = max(24, int(gray.shape[0] * 0.08))
+            faces = face_cascade.detectMultiScale(gray, 1.2, 6, minSize=(min_side, min_side))
+            if len(faces) == 0:
+                continue
+            fx, fy, fw, fh = max(faces, key=lambda f: f[2] * f[3])
+            centres.append(ox + fx + fw / 2.0)
+        if not centres:
+            return None
+        # Require faces in a reasonable share of samples, else it's noise.
+        if len(centres) < max(2, sample_count // 5):
+            return None
+        return float(np.median(centres))
+    finally:
         cap.release()
+
+
+def detect_face_position(video_path: str, sample_count: int = 9) -> int:
+    """Legacy API: crop x-offset for a 9:16 crop of `video_path`, or -1."""
+    cx = face_center_x(video_path, sample_count=sample_count)
+    if cx is None:
         return -1
-
-    face_positions = []
-    sample_indices = np.linspace(0, total_frames - 1, sample_count, dtype=int)
-
-    for idx in sample_indices:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-        ret, frame = cap.read()
-        if not ret:
-            continue
-
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = face_cascade.detectMultiScale(gray, 1.3, 5)
-        if len(faces) > 0:
-            # Take the largest face
-            areas = [w * h for (x, y, w, h) in faces]
-            largest = faces[np.argmax(areas)]
-            fx, _, fw, _ = largest
-            face_center_x = fx + fw // 2
-            face_positions.append(face_center_x)
-
-    cap.release()
-
-    if not face_positions:
-        return -1
-
-    avg_x = int(np.mean(face_positions))
     info = get_video_info(video_path)
     src_w, src_h = info["width"], info["height"]
-    target_ratio = 9 / 16
-    crop_w = int(src_h * target_ratio)
-    crop_x = avg_x - crop_w // 2
-    crop_x = max(0, min(crop_x, src_w - crop_w))
-
-    return crop_x
+    crop_w = int(src_h * 9 / 16)
+    return int(max(0, min(cx - crop_w // 2, src_w - crop_w)))
 
 
 def cut_clip(
@@ -74,12 +93,12 @@ def export_clip(
     if not fmt:
         raise ValueError(f"Unknown format: {format_key}")
 
-    crop_x = -1
+    center = None
     if format_key == "9:16":
-        crop_x = detect_face_position(clip_path)
+        center = face_center_x(clip_path, sample_count=9)
 
     return reframe_video(
         clip_path, output_path,
         fmt["width"], fmt["height"],
-        crop_x=crop_x
+        face_center_x=center,
     )

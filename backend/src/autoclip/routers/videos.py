@@ -1,26 +1,45 @@
 """Video upload, list, and delete endpoints."""
+import logging
 import shutil
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from sqlalchemy.orm import Session
+from autoclip.auth import settings as auth_settings
+from autoclip.auth.deps import current_user, get_owned_video, require_not_demo
 from autoclip.database import get_db
-from autoclip.models import Video, generate_id
+from autoclip.models import User, Video, generate_id
 from autoclip.schemas import VideoOut
 from autoclip.config import UPLOAD_DIR, MAX_UPLOAD_SIZE, OUTPUT_DIR
 from autoclip.utils.ffmpeg import get_video_info
 
-router = APIRouter(prefix="/api/videos", tags=["videos"])
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/api/videos", tags=["videos"], dependencies=[Depends(current_user)])
+
+
+def _video_out(v: Video, clips_count: int) -> VideoOut:
+    from autoclip.utils.paths import public_url
+    return VideoOut(id=v.id, filename=v.filename, duration=v.duration, resolution=v.resolution,
+                    status=v.status, created_at=v.created_at, clips_count=clips_count,
+                    source_url=public_url(v.file_path))
 
 
 @router.post("/upload", response_model=VideoOut)
-async def upload_video(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    """Upload a video file."""
+async def upload_video(file: UploadFile = File(...), db: Session = Depends(get_db),
+                       user: User = Depends(require_not_demo)):
+    """Upload a video file (non-admins: at most MAX_VIDEOS_PER_USER stored
+    videos, each at most MAX_VIDEO_MINUTES_DEMO long)."""
     if not file.filename:
         raise HTTPException(400, "No filename provided")
 
     ext = Path(file.filename).suffix.lower()
     if ext not in {".mp4", ".mov", ".avi", ".mkv", ".webm"}:
         raise HTTPException(400, f"Unsupported format: {ext}")
+
+    if not user.is_admin:
+        owned = db.query(Video).filter(Video.user_id == user.id).count()
+        if owned >= auth_settings.MAX_VIDEOS_PER_USER:
+            raise HTTPException(409, (f"You can keep up to {auth_settings.MAX_VIDEOS_PER_USER} videos. "
+                                      "Delete one in your Library to upload another."))
 
     video_id = generate_id()
     video_dir = UPLOAD_DIR / video_id
@@ -44,6 +63,14 @@ async def upload_video(file: UploadFile = File(...), db: Session = Depends(get_d
     except Exception:
         info = {"duration": None, "resolution": None}
 
+    max_minutes = auth_settings.MAX_VIDEO_MINUTES_DEMO
+    if not user.is_admin and max_minutes > 0:
+        duration = info.get("duration")
+        if duration is None or duration > max_minutes * 60:
+            shutil.rmtree(video_dir, ignore_errors=True)
+            raise HTTPException(413, (f"Videos can be at most {max_minutes} minutes long on this account."
+                                      if duration else "Couldn't read this video's duration."))
+
     video = Video(
         id=video_id,
         filename=file.filename,
@@ -51,72 +78,62 @@ async def upload_video(file: UploadFile = File(...), db: Session = Depends(get_d
         duration=info.get("duration"),
         resolution=info.get("resolution"),
         status="uploaded",
+        user_id=user.id,
     )
     db.add(video)
     db.commit()
     db.refresh(video)
 
-    return VideoOut(
-        id=video.id,
-        filename=video.filename,
-        duration=video.duration,
-        resolution=video.resolution,
-        status=video.status,
-        created_at=video.created_at,
-        clips_count=0,
-    )
+    return _video_out(video, 0)
 
 
 @router.get("", response_model=list[VideoOut])
-def list_videos(db: Session = Depends(get_db)):
-    """List all uploaded videos."""
-    videos = db.query(Video).order_by(Video.created_at.desc()).all()
-    result = []
+def list_videos(db: Session = Depends(get_db), user: User = Depends(current_user)):
+    """List the current user's videos (status normalised like the chat API)."""
+    from autoclip.utils import analysis_jobs
+    videos = (db.query(Video).filter(Video.user_id == user.id)
+              .order_by(Video.created_at.desc()).all())
+    out = []
     for v in videos:
-        result.append(VideoOut(
-            id=v.id,
-            filename=v.filename,
-            duration=v.duration,
-            resolution=v.resolution,
-            status=v.status,
-            created_at=v.created_at,
-            clips_count=len(v.clips),
-        ))
-    return result
+        item = _video_out(v, len(v.clips))
+        item.status = analysis_jobs.video_state(v.id).get("status", v.status)
+        out.append(item)
+    return out
 
 
 @router.get("/{video_id}", response_model=VideoOut)
-def get_video(video_id: str, db: Session = Depends(get_db)):
+def get_video(video_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)):
     """Get video details."""
-    video = db.query(Video).filter(Video.id == video_id).first()
-    if not video:
-        raise HTTPException(404, "Video not found")
-    return VideoOut(
-        id=video.id,
-        filename=video.filename,
-        duration=video.duration,
-        resolution=video.resolution,
-        status=video.status,
-        created_at=video.created_at,
-        clips_count=len(video.clips),
-    )
+    video = get_owned_video(db, user, video_id)
+    return _video_out(video, len(video.clips))
 
 
 @router.delete("/{video_id}")
-def delete_video(video_id: str, db: Session = Depends(get_db)):
-    """Delete video and all associated clips."""
-    video = db.query(Video).filter(Video.id == video_id).first()
-    if not video:
-        raise HTTPException(404, "Video not found")
+def delete_video(video_id: str, db: Session = Depends(get_db), user: User = Depends(require_not_demo)):
+    """Delete a video, its clips, moments and RAG vectors, then its files.
 
-    # Delete files
-    upload_dir = UPLOAD_DIR / video_id
-    output_dir = OUTPUT_DIR / video_id
-    if upload_dir.exists():
-        shutil.rmtree(upload_dir)
-    if output_dir.exists():
-        shutil.rmtree(output_dir)
+    DB rows go first (one transaction) and files only after the commit: the
+    old order removed the files and then failed on the moments FK, leaving a
+    DB row pointing at nothing.
+    """
+    from autoclip.models import Clip
+    from autoclip.services.moment_store import delete_moments
+    from autoclip.utils import analysis_jobs
 
-    db.delete(video)
-    db.commit()
+    video = get_owned_video(db, user, video_id)
+    if analysis_jobs.is_running(video_id):
+        raise HTTPException(409, "This video is still being analysed — try again when it finishes.")
+
+    try:
+        delete_moments(db, video_id)  # moments table + data_moment_nodes vectors
+        db.query(Clip).filter(Clip.video_id == video_id).delete(synchronize_session=False)
+        db.delete(video)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("delete_video failed for %s", video_id)
+        raise HTTPException(500, "Could not delete the video. Nothing was removed.")
+
+    for d in (UPLOAD_DIR / video_id, OUTPUT_DIR / video_id):
+        shutil.rmtree(d, ignore_errors=True)
     return {"message": "Video deleted"}

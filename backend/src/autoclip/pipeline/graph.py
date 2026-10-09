@@ -10,6 +10,9 @@ Key LangGraph primitives used:
     • Compiled subgraphs (analysis + generation) reused as nodes
     • Annotated state reducers (`operator.add`) for safe parallel writes
     • Conditional entry edge for "skip analysis when regenerating clips"
+    • Analysis-only graph (transcription → scenes → analysis → END) — what the
+      background analysis job runs; clip generation is a separate, on-request
+      step (generation_only), so analysing never renders throwaway clips
     • Postgres checkpointer (env-toggle) for resumable runs and chat threads
 """
 from __future__ import annotations
@@ -28,6 +31,7 @@ from autoclip.pipeline.agents.chunk_analyzer import chunk_analyzer_node
 from autoclip.pipeline.agents.global_fusion import global_fusion_node
 from autoclip.pipeline.agents.clip_selector import run_clip_selector
 from autoclip.pipeline.agents.production import run_production
+from autoclip.config import OUTPUT_DIR
 from autoclip.utils.ffmpeg import extract_audio
 from autoclip.services.transcription import transcribe_audio
 from autoclip.services.scene_detector import detect_scene_boundaries
@@ -40,9 +44,9 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════════
 
 def transcription_node(state: PipelineState) -> dict:
-    """Extract audio and transcribe with Groq Whisper Turbo."""
+    """Extract audio and transcribe via OpenRouter audio (services/transcription.py)."""
     video_id = state["video_id"]
-    output_dir = Path(f"outputs/{video_id}")
+    output_dir = Path(OUTPUT_DIR) / video_id
     output_dir.mkdir(parents=True, exist_ok=True)
 
     audio_path = str(output_dir / "audio.wav")
@@ -157,6 +161,25 @@ def build_pipeline_graph() -> StateGraph:
     return g
 
 
+def build_analysis_only_graph() -> StateGraph:
+    """transcription → scene_detection → analysis subgraph → END.
+
+    Run by the background analysis job (utils/analysis_jobs.py). No clip
+    generation: clips are produced later, per user request, by
+    `generation_only` — the old path ran the full graph with
+    clip_configs=[] and rendered 4 default clips nobody asked for.
+    """
+    g = StateGraph(PipelineState)
+    g.add_node("transcription", transcription_node)
+    g.add_node("scene_detection", scene_detection_node)
+    g.add_node("analysis", build_analysis_subgraph().compile())
+    g.add_edge(START, "transcription")
+    g.add_edge("transcription", "scene_detection")
+    g.add_edge("scene_detection", "analysis")
+    g.add_edge("analysis", END)
+    return g
+
+
 # ═══════════════════════════════════════════════════════════════
 # CHECKPOINTER (env-toggle: Postgres in prod, MemorySaver in dev)
 # ═══════════════════════════════════════════════════════════════
@@ -203,11 +226,18 @@ def _build_checkpointer():
 checkpointer = _build_checkpointer()
 pipeline = build_pipeline_graph().compile(checkpointer=checkpointer)
 generation_only = build_generation_subgraph().compile()
+# No checkpointer: the job tracks its own status/progress (Video.status +
+# Redis), and checkpointing every chunk's full transcript window per step
+# only bloated Postgres. It also used thread_id=video_id — the same id the
+# chat agent used for its conversation thread.
+analysis_only = build_analysis_only_graph().compile()
 
 
 __all__ = [
     "pipeline",
     "generation_only",
+    "analysis_only",
+    "build_analysis_only_graph",
     "build_pipeline_graph",
     "build_analysis_subgraph",
     "build_generation_subgraph",

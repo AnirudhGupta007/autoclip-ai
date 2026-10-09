@@ -39,9 +39,10 @@ def generate_srt(word_timestamps: list[dict], words_per_group: int = 5) -> str:
 ASS_HEADER_TEMPLATE = """[Script Info]
 Title: AutoClip Captions
 ScriptType: v4.00+
-PlayResX: 1920
-PlayResY: 1080
+PlayResX: {play_x}
+PlayResY: {play_y}
 WrapStyle: 0
+ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
@@ -52,6 +53,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 {events}"""
 
 
-def build_ass_file(styles_block: str, events_block: str) -> str:
-    """Build a complete ASS file from style and event blocks."""
-    return ASS_HEADER_TEMPLATE.format(styles=styles_block, events=events_block)
+def build_ass_file(styles_block: str, events_block: str,
+                   play_res: tuple[int, int] = (1920, 1080)) -> str:
+    """Build a complete ASS file from style and event blocks.
+
+    `play_res` should match the output video size — a fixed 1920x1080 script
+    burned onto a 1080x1920 clip gets stretched non-uniformly by libass."""
+    return ASS_HEADER_TEMPLATE.format(
+        styles=styles_block, events=events_block,
+        play_x=int(play_res[0]), play_y=int(play_res[1]),
+    )

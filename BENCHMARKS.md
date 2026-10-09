@@ -19,9 +19,11 @@ larger, more representative sample — see "What this doesn't cover" below.
   `OPENROUTER_MODEL_VISION=google/gemini-2.5-flash` (chunk analysis),
   `OPENROUTER_MODEL_AUDIO=google/gemini-2.5-flash` (transcription).
 - Embeddings: local, `fastembed` (`BAAI/bge-small-en-v1.5`, 384-dim) — no
-  API call, not counted in OpenRouter cost.
-- Backend image size: **1.63GB** (no torch/CUDA — see provider notes in
-  README for why `fastembed` replaced `sentence-transformers` here).
+  API call, not counted in OpenRouter cost. *(Since replaced: embeddings now
+  go through OpenRouter, `baai/bge-m3`, 1024-dim, and `fastembed` is no
+  longer a dependency.)*
+- Backend image size: **1.63GB** (no torch/CUDA — see bug #2 below for why
+  `fastembed` replaced `sentence-transformers` at the time).
 
 ## What was actually measured
 
@@ -37,8 +39,8 @@ taken mid-session to the last): **≈$0.125**, over roughly 5 real request
 turns, 2 of which were full multi-tool-call agent runs (search_moments +
 select_and_produce_clips + scoring).
 
-**Account balance at end of session: $910 total credits, $909.18 used,
-≈$0.82 remaining.** This needs a top-up before any real use — see README.
+**The OpenRouter balance was nearly exhausted (under $1) by the end of the
+session**, which is what limited further testing. Top up before any real use.
 
 ## Bugs found and fixed via this live run (none of these were caught by
 static review or `py_compile` — they only surfaced by actually executing)
@@ -49,7 +51,8 @@ static review or `py_compile` — they only surfaced by actually executing)
 2. `sentence-transformers` pulled full PyTorch + CUDA wheels (multiple GB),
    causing repeated OOM kills on this build machine. Swapped for
    `fastembed` (ONNX Runtime, no torch) — same model class
-   (`BAAI/bge-small-en-v1.5`), ~1/10th the footprint.
+   (`BAAI/bge-small-en-v1.5`), ~1/10th the footprint. *(Later superseded by
+   OpenRouter-hosted BGE-M3 embeddings, so no local embedding model at all.)*
 3. `deepagents.create_deep_agent()` and each subagent dict take
    `system_prompt`, not `instructions`/`prompt` as originally written
    (written without the ability to `pip install` and check the real
@@ -75,7 +78,8 @@ static review or `py_compile` — they only surfaced by actually executing)
    assumption and crashed clip production. Now skips non-numeric lines.
 8. Placeholder `LANGSMITH_API_KEY` with `LANGSMITH_TRACING=true` caused a
    403 error logged on every single LLM call (noisy, not fatal). Disabled
-   tracing by default.
+   tracing by default (`config.py`, compose, and — as of 2026-10-01 —
+   `.env.example`, which had still shipped `true`).
 
 ## Known gap (not fully resolved — needs more live iteration + credit)
 
@@ -84,7 +88,7 @@ narrate a plausible-sounding clip result ("Funny moment from
 {video_id}", score 0.85) that didn't match `/api/clips`. The system prompt
 was hardened to explicitly forbid this, but verifying the fix fully
 converges needs more live test turns than this session's remaining
-~$0.82 budget allows. This is a real, open item — not swept under the rug.
+budget allowed. This is a real, open item — not swept under the rug.
 
 ## What this doesn't cover
 
@@ -95,4 +99,7 @@ converges needs more live test turns than this session's remaining
   extrapolate from the per-chunk vision call cost above, but this session
   only tested single-chunk, sub-minute videos.
 - `/api/search` and `modify_clip` were implemented but not live-tested in
-  this session (budget ran out first).
+  this session (budget ran out first). A later code review found real bugs
+  in both (stale RAG rows; clip edits dropping the reframe and breaking the
+  clip URL) — see README "Known issues".
+- The current cheap-model defaults have not been re-benchmarked.

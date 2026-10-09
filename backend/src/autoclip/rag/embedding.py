@@ -14,7 +14,7 @@ from autoclip.config import EMBEDDING_DIM
 
 
 class AutoclipEmbedding(BaseEmbedding):
-    """LlamaIndex-compatible wrapper around the local embedding model."""
+    """LlamaIndex-compatible wrapper around OpenRouter embeddings (services/embeddings.py)."""
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
