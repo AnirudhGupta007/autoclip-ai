@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Play, Download, ChevronDown, Film } from 'lucide-react'
+import { Play, Download, ChevronDown, Video } from 'lucide-react'
 import ScoreRing from './ScoreRing'
+import { SPRING_SOFT } from './landing/primitives'
 
 const SCORE_KEYS = ['hook', 'emotion', 'shareability', 'retention', 'controversy', 'novelty']
 
@@ -20,7 +21,7 @@ function ScoreBar({ label, value = 0 }) {
       </span>
       <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/8">
         <motion.div
-          className="h-full rounded-full bg-gold-sheen bg-[length:200%_auto]"
+          className="h-full rounded-full bg-platinum-muted"
           initial={{ width: 0 }}
           animate={{ width: `${(value || 0) * 10}%` }}
           transition={{ duration: 0.7, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
@@ -47,8 +48,8 @@ export default function ClipCard({ clip, index }) {
       layout
       initial={{ opacity: 0, y: 18 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.07, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-      className="glass group overflow-hidden rounded-2xl transition-colors duration-500 ease-lux hover:border-gold-700/50"
+      transition={{ ...SPRING_SOFT, delay: index * 0.06 }}
+      className="surface group overflow-hidden rounded-2xl transition-[border-color,transform] duration-300 ease-lux hover:-translate-y-0.5 hover:border-white/20"
     >
       {/* Preview */}
       <div className={`relative ${aspect} bg-obsidian-900`}>
@@ -76,20 +77,20 @@ export default function ClipCard({ clip, index }) {
               />
             ) : (
               <span className="grid h-full w-full place-items-center text-platinum-dim">
-                <Film size={26} aria-hidden="true" />
+                <Video size={26} aria-hidden="true" />
               </span>
             )}
             <span className="absolute inset-0 bg-gradient-to-t from-obsidian/90 via-transparent to-obsidian/30" />
             <span className="absolute inset-0 grid place-items-center opacity-0 transition-opacity duration-300 ease-lux group-hover/play:opacity-100">
-              <span className="grid h-12 w-12 place-items-center rounded-full border border-gold-700/60 bg-obsidian/70 backdrop-blur-sm">
-                <Play size={16} className="ml-0.5 text-gold" aria-hidden="true" />
+              <span className="grid h-12 w-12 place-items-center rounded-full bg-gold text-obsidian shadow-elev-2">
+                <Play size={16} className="ml-0.5 fill-current" aria-hidden="true" />
               </span>
             </span>
           </button>
         )}
 
         {/* Rank */}
-        <span className="pointer-events-none absolute left-2.5 top-2.5 rounded-md border border-white/10 bg-obsidian/80 px-2 py-0.5 font-display text-xs text-gold backdrop-blur-sm nums">
+        <span className="pointer-events-none absolute left-2.5 top-2.5 rounded-md border border-white/10 bg-obsidian/80 px-2 py-0.5 font-display text-xs text-platinum backdrop-blur-sm nums">
           {String(index).padStart(2, '0')}
         </span>
 
@@ -113,7 +114,7 @@ export default function ClipCard({ clip, index }) {
         </h4>
 
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="rounded border border-gold-700/40 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-gold-400 nums">
+          <span className="rounded border border-white/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-platinum-muted nums">
             {clip.frame || '9:16'}
           </span>
           {clip.style_tags?.slice(0, 2).map((tag) => (
@@ -135,9 +136,9 @@ export default function ClipCard({ clip, index }) {
           type="button"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
-          className="mt-3 flex w-full items-center justify-between rounded-lg px-1 py-1.5 text-[11px] uppercase tracking-[0.18em] text-platinum-dim transition-colors duration-200 hover:text-platinum-muted"
+          className="mt-3 flex min-h-[32px] w-full items-center justify-between rounded-lg px-1 text-xs text-platinum-dim transition-colors duration-200 hover:text-platinum"
         >
-          {expanded ? 'Hide detail' : 'Scores & transcript'}
+          {expanded ? 'Hide details' : 'Details'}
           <motion.span animate={{ rotate: expanded ? 180 : 0 }} transition={{ duration: 0.25 }}>
             <ChevronDown size={14} aria-hidden="true" />
           </motion.span>
@@ -162,7 +163,7 @@ export default function ClipCard({ clip, index }) {
                 )}
 
                 {clip.transcript && (
-                  <blockquote className="border-l border-gold-700/50 pl-3 text-xs italic leading-relaxed text-platinum-muted">
+                  <blockquote className="border-l border-white/15 pl-3 text-xs italic leading-relaxed text-platinum-muted">
                     {clip.transcript.slice(0, 180)}
                     {clip.transcript.length > 180 ? '…' : ''}
                   </blockquote>
@@ -172,7 +173,7 @@ export default function ClipCard({ clip, index }) {
                   <a
                     href={clip.file_url}
                     download
-                    className="flex items-center justify-center gap-2 rounded-lg border border-gold-700/50 bg-gold/10 px-3 py-2.5 text-xs text-gold-300 transition-all duration-300 ease-lux hover:bg-gold/15 hover:shadow-gold"
+                    className="btn btn-primary btn-sm w-full rounded-lg"
                   >
                     <Download size={13} aria-hidden="true" />
                     Download clip

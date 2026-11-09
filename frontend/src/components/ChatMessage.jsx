@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
 import { Scissors } from 'lucide-react'
 import ClipCard from './ClipCard'
+import { SPRING_SOFT } from './landing/primitives'
 
 export default function ChatMessage({ msg }) {
   const isBot = msg.role === 'assistant'
@@ -9,19 +10,19 @@ export default function ChatMessage({ msg }) {
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+      transition={SPRING_SOFT}
       className={`flex gap-3.5 ${isBot ? '' : 'flex-row-reverse'}`}
     >
       <div
         className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border ${
           isBot
-            ? 'border-gold-700/50 bg-obsidian-800'
+            ? 'border-white/10 bg-obsidian-800'
             : 'border-white/10 bg-white/[0.04]'
         }`}
         aria-hidden="true"
       >
         {isBot ? (
-          <Scissors size={14} className="text-gold" />
+          <Scissors size={14} className="text-platinum" />
         ) : (
           <span className="text-[11px] uppercase tracking-wider text-platinum-dim">You</span>
         )}
@@ -30,7 +31,7 @@ export default function ChatMessage({ msg }) {
       <div className={`min-w-0 max-w-[82%] ${isBot ? '' : 'items-end text-right'}`}>
         <div
           className={`inline-block rounded-2xl px-4 py-3 text-left ${
-            isBot ? 'glass' : 'border border-gold-700/30 bg-gold/[0.07]'
+            isBot ? 'surface' : 'border border-white/10 bg-obsidian-700'
           }`}
         >
           <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-platinum">

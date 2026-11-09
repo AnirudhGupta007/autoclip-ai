@@ -54,7 +54,7 @@ export default function Login() {
           New here?{' '}
           <Link
             to={`/signup${params.get('next') ? `?next=${encodeURIComponent(next)}` : ''}`}
-            className="text-gold-400 underline-offset-4 hover:underline"
+            className="text-platinum underline decoration-white/30 underline-offset-4 hover:decoration-platinum"
           >
             Create an account
           </Link>
@@ -83,7 +83,7 @@ export default function Login() {
       </div>
 
       <GhostButton type="button" onClick={tryDemo} busy={busy === 'demo'} disabled={!!busy}>
-        <Sparkles size={14} className="text-gold" aria-hidden="true" />
+        <Sparkles size={14} aria-hidden="true" />
         Try the demo — no account needed
       </GhostButton>
       <p className="mt-2.5 text-center text-[11px] text-platinum-dim">

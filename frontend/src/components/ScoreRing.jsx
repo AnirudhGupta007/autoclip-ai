@@ -1,4 +1,5 @@
 import { motion, useReducedMotion } from 'framer-motion'
+import { C } from '../theme'
 
 /**
  * Circular engagement gauge, 0–10. Colour shifts with the score, but the
@@ -10,8 +11,9 @@ export default function ScoreRing({ score = 0, size = 38, stroke = 3 }) {
   const circumference = 2 * Math.PI * r
   const pct = Math.max(0, Math.min(10, score)) / 10
 
+  // Gold only for a standout score; otherwise platinum, dimmer when weak.
   const tone =
-    score >= 7.5 ? '#D4AF7A' : score >= 5 ? '#B8905A' : '#9C4152'
+    score >= 7.5 ? C.gold : score >= 5 ? C.platinumMuted : C.platinumDim
 
   return (
     <div
@@ -23,7 +25,7 @@ export default function ScoreRing({ score = 0, size = 38, stroke = 3 }) {
       <svg width={size} height={size} className="-rotate-90">
         <circle
           cx={size / 2} cy={size / 2} r={r}
-          fill="rgba(7,7,10,0.72)"
+          fill="rgba(0,0,0,0.72)"
           stroke="rgba(255,255,255,0.10)"
           strokeWidth={stroke}
         />

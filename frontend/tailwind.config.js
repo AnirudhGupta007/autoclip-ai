@@ -1,4 +1,9 @@
 /** @type {import('tailwindcss').Config} */
+
+// Colours live as RGB channels in CSS variables (src/index.css :root) so
+// Tailwind's `/<alpha>` modifiers keep working: `bg-gold/10`, `border-platinum/40`.
+const v = (name) => `rgb(var(--c-${name}) / <alpha-value>)`
+
 export default {
   content: [
     "./index.html",
@@ -6,35 +11,32 @@ export default {
   ],
   theme: {
     extend: {
+      // Palette: two major colours + one detail colour.
       colors: {
-        // Obsidian base — layered, never pure black (pure black kills depth
-        // on OLED and makes glass surfaces read as flat cut-outs).
+        // Major 1 — obsidian black. DEFAULT is pure black (page background);
+        // 900–600 are the layered surfaces on top of it.
         obsidian: {
-          DEFAULT: '#000000',
-          900: '#0B0B10',
-          800: '#121218',
-          700: '#191922',
-          600: '#22222D',
+          DEFAULT: v('obsidian'),
+          900: v('surface-900'),
+          800: v('surface-800'),
+          700: v('surface-700'),
+          600: v('surface-600'),
         },
-        // Champagne gold — the single brand accent.
-        gold: {
-          DEFAULT: '#D4AF7A',
-          300: '#EBD6B3',
-          400: '#E0C296',
-          500: '#D4AF7A',
-          600: '#B8905A',
-          700: '#8C6A3F',
-        },
-        // Oxblood — reserved for emphasis/destructive, never decoration.
-        oxblood: {
-          DEFAULT: '#7B2D3B',
-          400: '#9C4152',
-          600: '#5E202B',
-        },
+        // Major 2 — platinum, for text and UI.
         platinum: {
-          DEFAULT: '#F5F3EF',
-          muted: '#D2CDC4',
-          dim: '#9C978E',
+          DEFAULT: v('platinum'),
+          muted: v('platinum-muted'),
+          dim: v('platinum-dim'),
+        },
+        // Detail — gold. Only CTAs, active state, focus ring, key numbers and
+        // one highlighted headline word. Never decoration.
+        gold: {
+          DEFAULT: v('gold'),
+          300: v('gold-300'),
+          400: v('gold-400'),
+          500: v('gold'),
+          600: v('gold-600'),
+          700: v('gold-700'),
         },
       },
       fontFamily: {
@@ -57,28 +59,33 @@ export default {
       // Tailwind's default opacity scale, so those classes silently vanished.
       opacity: {
         8: '0.08',
+        12: '0.12',
       },
+      // Apple radii, concentric: outer = inner + padding (8 + 8 = 16, 12 + 8 = 20).
       borderRadius: {
+        lg: 'var(--radius-sm)',
+        xl: 'var(--radius-md)',
+        '2xl': 'var(--radius-lg)',
+        '3xl': 'var(--radius-xl)',
         '4xl': '2rem',
       },
+      // Layered dark shadows: a tight contact shadow plus a soft ambient one.
       boxShadow: {
-        'glass': '0 1px 0 0 rgba(255,255,255,0.06) inset, 0 20px 60px -20px rgba(0,0,0,0.9)',
-        'gold': '0 0 0 1px rgba(212,175,122,0.25), 0 18px 50px -18px rgba(212,175,122,0.45)',
-        'lift': '0 30px 80px -30px rgba(0,0,0,0.95)',
+        'elev-1': 'var(--shadow-1)',
+        'elev-2': 'var(--shadow-2)',
+        'elev-3': 'var(--shadow-3)',
+        'glass': 'var(--shadow-2)',
+        'lift': 'var(--shadow-3)',
+        'gold': '0 0 0 1px rgb(var(--c-gold) / 0.35), 0 12px 32px -12px rgb(var(--c-gold) / 0.45)',
       },
       backgroundImage: {
-        'gold-sheen': 'linear-gradient(103deg, #8C6A3F 0%, #EBD6B3 38%, #D4AF7A 52%, #8C6A3F 100%)',
-        'obsidian-fade': 'linear-gradient(180deg, rgba(0,0,0,0) 0%, #000000 85%)',
+        'obsidian-fade': 'linear-gradient(180deg, rgba(0,0,0,0) 0%, rgb(var(--c-obsidian)) 85%)',
       },
       transitionTimingFunction: {
         // One easing token everywhere, so motion feels like one system.
         'lux': 'cubic-bezier(0.22, 1, 0.36, 1)',
       },
       keyframes: {
-        'sheen': {
-          '0%': { backgroundPosition: '0% 50%' },
-          '100%': { backgroundPosition: '200% 50%' },
-        },
         'drift': {
           '0%, 100%': { transform: 'translate3d(0,0,0) scale(1)' },
           '50%': { transform: 'translate3d(2%, -3%, 0) scale(1.06)' },
@@ -93,7 +100,6 @@ export default {
         },
       },
       animation: {
-        'sheen': 'sheen 7s linear infinite',
         'drift': 'drift 22s ease-in-out infinite',
         'playhead': 'playhead 6s linear infinite',
         'rise': 'rise 0.6s cubic-bezier(0.22,1,0.36,1) both',

@@ -24,9 +24,9 @@ export default function Demo() {
     <AuthShell eyebrow="Demo" title="Demo" accent="unavailable.">
       <FormError>{error}</FormError>
       <p className="mt-4 text-center text-sm text-platinum-muted">
-        <Link to="/signup" className="text-gold-400 underline-offset-4 hover:underline">Create an account</Link>
+        <Link to="/signup" className="text-platinum underline decoration-white/30 underline-offset-4 hover:decoration-platinum">Create an account</Link>
         {' '}or{' '}
-        <Link to="/login" className="text-gold-400 underline-offset-4 hover:underline">sign in</Link>.
+        <Link to="/login" className="text-platinum underline decoration-white/30 underline-offset-4 hover:decoration-platinum">sign in</Link>.
       </p>
     </AuthShell>
   )

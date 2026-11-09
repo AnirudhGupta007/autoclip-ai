@@ -27,14 +27,14 @@ export default function ProcessingIndicator({ progress, liveClips = [], analysis
         animate={{ opacity: 1, y: 0 }}
         className="flex gap-3.5"
       >
-        <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-gold-700/50 bg-obsidian-800">
-          <Loader2 size={14} className="animate-spin text-gold" aria-hidden="true" />
+        <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-white/10 bg-obsidian-800">
+          <Loader2 size={14} className="animate-spin text-platinum" aria-hidden="true" />
         </div>
 
-        <div className="glass min-w-[260px] max-w-md flex-1 rounded-2xl px-4 py-3" role="status" aria-live="polite">
+        <div className="surface min-w-[260px] max-w-md flex-1 rounded-2xl px-4 py-3" role="status" aria-live="polite">
           <div className="flex items-baseline justify-between gap-4">
             <p className="text-[13px] text-platinum">{stage}…</p>
-            <span className="text-[11px] text-gold-300 nums">{Math.round(pct)}%</span>
+            <span className="text-[11px] text-gold nums">{Math.round(pct)}%</span>
           </div>
 
           <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-platinum-dim nums">
@@ -54,7 +54,7 @@ export default function ProcessingIndicator({ progress, liveClips = [], analysis
             aria-valuenow={Math.round(pct)}
           >
             <motion.div
-              className="h-full rounded-full bg-gold-sheen bg-[length:200%_auto]"
+              className="h-full rounded-full bg-gold"
               initial={false}
               animate={{ width: `${pct}%` }}
               transition={{ duration: 0.6, ease: 'easeOut' }}
@@ -86,11 +86,11 @@ export default function ProcessingIndicator({ progress, liveClips = [], analysis
       animate={{ opacity: 1, y: 0 }}
       className="flex gap-3.5"
     >
-      <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-gold-700/50 bg-obsidian-800">
-        <Loader2 size={14} className="animate-spin text-gold" aria-hidden="true" />
+      <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-white/10 bg-obsidian-800">
+        <Loader2 size={14} className="animate-spin text-platinum" aria-hidden="true" />
       </div>
 
-      <div className="glass min-w-[260px] rounded-2xl px-4 py-3" role="status" aria-live="polite">
+      <div className="surface min-w-[260px] rounded-2xl px-4 py-3" role="status" aria-live="polite">
         <p className="text-[13px] text-platinum">{stage}…</p>
 
         <div className="mt-2.5 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-platinum-dim nums">
@@ -102,7 +102,7 @@ export default function ProcessingIndicator({ progress, liveClips = [], analysis
         {/* Indeterminate shimmer — duration is genuinely unknown. */}
         <div className="mt-3 h-0.5 w-full overflow-hidden rounded-full bg-white/8">
           <motion.div
-            className="h-full w-1/3 rounded-full bg-gold-sheen bg-[length:200%_auto]"
+            className="h-full w-1/3 rounded-full bg-platinum-muted"
             animate={{ x: ['-100%', '300%'] }}
             transition={{ duration: 1.9, repeat: Infinity, ease: 'easeInOut' }}
           />

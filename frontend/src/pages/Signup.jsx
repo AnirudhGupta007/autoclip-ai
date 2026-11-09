@@ -42,12 +42,12 @@ export default function Signup() {
     <AuthShell
       eyebrow="Create an account"
       title="Start with the"
-      accent="long cut."
-      subtitle="Upload your own videos and ask for clips in plain language."
+      accent="full episode."
+      subtitle="Upload podcasts and videos up to an hour, then ask for clips in plain language."
       footer={
         <>
           Already have an account?{' '}
-          <Link to="/login" className="text-gold-400 underline-offset-4 hover:underline">
+          <Link to="/login" className="text-platinum underline decoration-white/30 underline-offset-4 hover:decoration-platinum">
             Sign in
           </Link>
         </>

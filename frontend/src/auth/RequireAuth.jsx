@@ -6,7 +6,7 @@ import { loginPath } from '../services/api'
 export function FullScreenLoader() {
   return (
     <div className="grid h-screen place-items-center bg-obsidian">
-      <Loader2 size={20} className="animate-spin text-gold" aria-label="Loading" />
+      <Loader2 size={20} className="animate-spin text-platinum-dim" aria-label="Loading" />
     </div>
   )
 }

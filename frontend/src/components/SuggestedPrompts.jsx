@@ -4,7 +4,7 @@ const PROMPTS = [
   '4 funny clips under 30s for TikTok',
   'The most emotional moment, 1:1',
   'Best 60s for YouTube Shorts',
-  'Where the argument gets heated',
+  'The best hot take, 45s',
 ]
 
 export default function SuggestedPrompts({ onSelect, visible }) {
@@ -23,7 +23,7 @@ export default function SuggestedPrompts({ onSelect, visible }) {
               key={p}
               type="button"
               onClick={() => onSelect(p)}
-              className="rounded-full border border-white/10 bg-white/[0.03] px-3.5 py-1.5 text-xs text-platinum-muted transition-all duration-300 ease-lux hover:border-gold-700/50 hover:text-platinum"
+              className="btn btn-secondary btn-sm font-normal text-platinum-muted hover:text-platinum"
             >
               {p}
             </button>
