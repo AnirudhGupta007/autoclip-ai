@@ -19,7 +19,7 @@ const RATES = [
   { key: 'hit_at_3', label: 'Hit@3', note: 'Did any delivered clip match one of the human’s top-3 moments for that ask?' },
   { key: 'category_match', label: 'Category match', note: 'Share of clips that land on a human moment carrying the asked tag (funny, tense, …).' },
   { key: 'moment_recall', label: 'Moment recall', note: 'Share of the 35 human-labelled moments the index found at all.' },
-  { key: 'transcript_coverage', label: 'Transcript coverage', note: 'Share of film minutes with at least one transcribed word.' },
+  { key: 'transcript_coverage', label: 'Transcript coverage', note: 'Share of source minutes with at least one transcribed word.' },
   { key: 'captions_present', label: 'Captions present', note: 'Clips with visibly burned-in captions (pixel diff vs. the pre-caption render).' },
   { key: 'length_adherence', label: 'Length adherence', note: 'Delivered length within ±10% of what was asked.' },
 ]
@@ -33,8 +33,8 @@ const TILES = [
 
 function Pending({ className = '' }) {
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border border-gold-700/40 bg-gold/[0.06] px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] text-gold-300 ${className}`}>
-      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-gold" />
+    <span className={`chip px-2.5 text-[10px] uppercase tracking-[0.18em] ${className}`}>
+      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-platinum-muted" />
       Re-measuring
     </span>
   )
@@ -46,17 +46,17 @@ function Tile({ t, base, cur }) {
   const c = cur?.[t.key]
   const better = c != null && b != null && (t.lower ? c < b : c > b)
   return (
-    <motion.div variants={fadeUp} className="glass relative overflow-hidden rounded-2xl p-5 sm:p-6">
+    <motion.div variants={fadeUp} className="surface relative overflow-hidden rounded-2xl p-5 sm:p-6">
       <div className="mb-4 flex items-center justify-between">
         <p className="text-[10px] uppercase tracking-[0.24em] text-platinum-dim">{t.label}</p>
-        <Icon size={15} className="text-gold-600" aria-hidden="true" />
+        <Icon size={15} className="text-platinum-dim" aria-hidden="true" />
       </div>
       <p className="text-[10px] uppercase tracking-[0.2em] text-platinum-dim">Before</p>
       <p className="mt-1 font-display text-3xl text-platinum nums sm:text-4xl">{b != null ? t.fmt(b) : '—'}</p>
       <div className="mt-5 flex min-h-[28px] items-center justify-between gap-3 border-t border-white/8 pt-4">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-gold-600">After</p>
+        <p className="text-[10px] uppercase tracking-[0.2em] text-platinum-muted">After</p>
         {c != null ? (
-          <p className={`font-display text-xl nums ${better ? 'text-gold-300' : 'text-platinum'}`}>{t.fmt(c)}</p>
+          <p className={`font-display text-xl nums ${better ? 'text-gold' : 'text-platinum'}`}>{t.fmt(c)}</p>
         ) : (
           <Pending />
         )}
@@ -93,17 +93,17 @@ function RateRow({ m, base, cur, i }) {
       <div className="space-y-2.5 self-center">
         <div className="grid grid-cols-[3.5rem_1fr_3rem] items-center gap-3">
           <span className="text-[10px] uppercase tracking-[0.18em] text-platinum-dim">Before</span>
-          <Bar value={b ?? 0} tone="bg-gradient-to-r from-gold-700/70 to-gold-600/70" delay={0.05 * i} />
+          <Bar value={b ?? 0} tone="bg-white/25" delay={0.05 * i} />
           <span className="text-right font-mono text-xs text-platinum-muted nums">{b != null ? pct(b) : '—'}</span>
         </div>
         <div className="grid grid-cols-[3.5rem_1fr_3rem] items-center gap-3">
-          <span className="text-[10px] uppercase tracking-[0.18em] text-gold-600">After</span>
+          <span className="text-[10px] uppercase tracking-[0.18em] text-platinum-muted">After</span>
           {c != null ? (
-            <Bar value={c} tone="bg-gradient-to-r from-gold-600 to-gold-300" delay={0.2 + 0.05 * i} />
+            <Bar value={c} tone="bg-platinum" delay={0.2 + 0.05 * i} />
           ) : (
             <div className="shimmer-track h-2.5 w-full rounded-full" aria-label="re-measuring after pipeline fixes" />
           )}
-          <span className="text-right font-mono text-xs text-gold-300 nums">{c != null ? pct(c) : '…'}</span>
+          <span className="text-right font-mono text-xs text-gold nums">{c != null ? pct(c) : '…'}</span>
         </div>
       </div>
     </motion.div>
@@ -129,12 +129,12 @@ export default function Results() {
 
       <motion.div variants={fadeUp} className="mt-8 flex flex-wrap items-center gap-3 text-xs text-platinum-dim">
         <span className="inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5">
-          <FlaskConical size={13} className="text-gold" aria-hidden="true" />
+          <FlaskConical size={13} className="text-platinum-muted" aria-hidden="true" />
           Baseline {base?.measured ?? updated}
           {base?.git && <span className="font-mono text-platinum-dim/80">· {base.git}</span>}
         </span>
         {cur ? (
-          <span className="rounded-full border border-gold-700/40 px-3 py-1.5 text-gold-300">After {cur.measured ?? ''}</span>
+          <span className="rounded-full border border-white/15 px-3 py-1.5 text-platinum">After {cur.measured ?? ''}</span>
         ) : (
           <span className="text-platinum-muted">“After” is being re-measured following the pipeline fixes.</span>
         )}
@@ -156,17 +156,17 @@ export default function Results() {
       <div className="mt-16 grid gap-10 lg:grid-cols-[0.8fr_1.2fr]">
         <motion.div variants={fadeUp}>
           <h3 className="font-display text-display-md text-platinum">
-            What the eval <span className="italic text-gold-400">caught.</span>
+            What the eval <span className="italic text-platinum-muted">caught.</span>
           </h3>
           <p className="mt-4 max-w-sm text-sm leading-relaxed text-platinum-muted">
             {subject.match_rule.charAt(0).toUpperCase() + subject.match_rule.slice(1)}. Cost is read from the
-            provider’s billing delta, not estimated. The film itself is never published.
+            provider’s billing delta, not estimated. {subject.private_note || 'Copyrighted eval sources are never published.'}
           </p>
           <a
             href={method}
             target="_blank"
             rel="noreferrer"
-            className="group mt-6 inline-flex items-center gap-2 text-sm text-gold-300 transition-colors duration-300 hover:text-gold"
+            className="group mt-6 inline-flex items-center gap-2 text-sm text-platinum underline decoration-white/30 underline-offset-4 transition-colors duration-300 hover:decoration-platinum"
           >
             Read the method (EVALUATION.md)
             <ArrowUpRight size={15} className="transition-transform duration-300 ease-lux group-hover:-translate-y-0.5 group-hover:translate-x-0.5" aria-hidden="true" />
@@ -175,7 +175,7 @@ export default function Results() {
         <ul className="grid gap-x-8 gap-y-6 sm:grid-cols-2">
           {CAUGHT.map(([t, b]) => (
             <motion.li key={t} variants={fadeUp} className="relative pl-5">
-              <span aria-hidden="true" className="absolute left-0 top-2 h-1.5 w-1.5 rounded-full bg-oxblood-400" />
+              <span aria-hidden="true" className="absolute left-0 top-2 h-1.5 w-1.5 rounded-full bg-platinum-dim" />
               <p className="mb-1.5 text-sm font-medium text-platinum">{t}</p>
               <p className="text-sm leading-relaxed text-platinum-dim">{b}</p>
             </motion.li>

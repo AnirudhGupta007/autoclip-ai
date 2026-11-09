@@ -1,9 +1,10 @@
 import { useRef, useState } from 'react'
 import { AnimatePresence, motion, useScroll, useTransform } from 'framer-motion'
 import {
-  Upload, AudioLines, Clapperboard, ScanEye, GitMerge, Database, Bot, Gauge, Film, ChevronDown,
+  Upload, AudioLines, Clapperboard, ScanEye, GitMerge, Database, Bot, Gauge, Video, ChevronDown,
 } from 'lucide-react'
 import { EASE, Section, SectionHead, fadeUp } from './primitives'
+import { C, alpha } from '../../theme'
 
 /*
  * "How it works" — the real pipeline, top to bottom. Each step expands to the
@@ -15,17 +16,17 @@ const STEPS = [
   {
     icon: Upload,
     title: 'Upload',
-    line: 'Drop a long video. Analysis starts as a background job.',
-    tech: ['FastAPI', 'background job', 'Redis pub/sub', 'SSE'],
-    what: 'The upload is stored and an analysis job starts in the background. Each pipeline node publishes progress to Redis; the browser follows it over Server-Sent Events (chunk done, moments found, clip ready).',
-    why: 'A feature film takes minutes to analyse. Holding an HTTP request open that long fails, so the agent starts the job, gives an ETA, and picks your request back up when it finishes.',
+    line: 'Drop a podcast or video up to an hour. Audio becomes an audiogram.',
+    tech: ['FastAPI', 'background job', 'Redis pub/sub', 'SSE', 'ffmpeg audiogram'],
+    what: 'The upload is stored and an analysis job starts in the background. An audio-only file is first turned into an audiogram video (waveform and title on black), so every later step works the same. Each pipeline node publishes progress to Redis; the browser follows it over Server-Sent Events (chunk done, moments found, clip ready).',
+    why: 'An hour-long episode takes minutes to analyse. Holding an HTTP request open that long fails, so the agent starts the job, gives an ETA, and picks your request back up when it finishes.',
   },
   {
     icon: AudioLines,
     title: 'Transcription',
     line: 'Audio becomes a timestamped transcript.',
-    tech: ['OpenRouter audio', 'Gemini 2.5 Flash-Lite', '10-min segments ×4'],
-    what: 'Audio is split into ~10-minute segments and sent in parallel as input_audio parts. The model returns phrase-level timestamps; word times are spread across each phrase.',
+    tech: ['OpenRouter audio', 'Gemini 2.5 Flash-Lite', '3-min segments ×4'],
+    what: 'Audio is split into ~3-minute segments and sent in parallel as input_audio parts. The model returns phrase-level timestamps; word times are spread across each phrase.',
     why: 'OpenRouter has no dedicated speech-to-text endpoint, and one provider key for everything matters more here than a separate ASR bill. Approximate word times are good enough for snapping cut points.',
   },
   {
@@ -39,10 +40,10 @@ const STEPS = [
   {
     icon: ScanEye,
     title: 'Chunk-parallel vision',
-    line: 'The film is split into 2-minute windows, all analysed at once.',
+    line: 'The episode is split into 2-minute windows, all analysed at once.',
     tech: ['LangGraph Send API', 'fan-out / fan-in', 'Gemini 2.5 Flash-Lite vision', 'structured output'],
-    what: 'chunk_planner cuts 120 s windows with 10 s overlap. The Send API fans out one chunk_analyzer per window, each reading sampled frames together with the transcript for that window, and returning up to five typed moments. An operator.add reducer fans them back in.',
-    why: 'A 98-minute film becomes ~50 independent readings instead of one lossy summary. The windows run concurrently, and if one fails the others still finish.',
+    what: 'chunk_planner cuts 120 s windows with 10 s overlap. The Send API fans out one chunk_analyzer per window, each reading sampled frames together with the transcript for that window, and returning up to five typed moments. Audio uploads skip vision and read the transcript alone; static-camera shots get fewer frames. An operator.add reducer fans them back in.',
+    why: 'An hour-long episode becomes ~30 independent readings instead of one lossy summary. The windows run concurrently, and if one fails the others still finish.',
     fan: true,
   },
   {
@@ -58,7 +59,7 @@ const STEPS = [
     title: 'Moment index',
     line: 'Every moment lands in a searchable vector index.',
     tech: ['Postgres + pgvector', 'LlamaIndex', 'RAG'],
-    what: 'Moments are saved as rows and as LlamaIndex nodes in pgvector, filtered by video. A request like “where he roasts the competitor” is matched by meaning.',
+    what: 'Moments are saved as rows and as LlamaIndex nodes in pgvector, filtered by video. A request is answered from three candidate lists (vector similarity, category tags, keywords), re-ranked by one LLM call, then filtered so clips don’t overlap.',
     why: 'You pay for analysis once. Every later ask, in any format or length, is a cheap retrieval plus an ffmpeg cut.',
   },
   {
@@ -78,7 +79,7 @@ const STEPS = [
     why: 'Scoring is a narrow, structured task. A cheap open model handles it at a fraction of the orchestrator’s per-token price.',
   },
   {
-    icon: Film,
+    icon: Video,
     title: 'Production',
     line: 'Cut, reframed, captioned, thumbnailed.',
     tech: ['ffmpeg', 'face-centred reframe', 'ASS captions', '9:16 · 1:1 · 16:9'],
@@ -94,8 +95,8 @@ function FanOutGlyph() {
     <svg viewBox="0 0 320 210" className="w-full max-w-[340px]" role="img" aria-label="One video split into six windows analysed in parallel, merged by fusion into a vector index">
       <defs>
         <linearGradient id="fan-src" x1="0" x2="1">
-          <stop offset="0" stopColor="#8C6A3F" />
-          <stop offset="1" stopColor="#D4AF7A" />
+          <stop offset="0" stopColor={C.platinumDim} />
+          <stop offset="1" stopColor={C.platinum} />
         </linearGradient>
       </defs>
       {/* source timeline split into windows */}
@@ -108,20 +109,20 @@ function FanOutGlyph() {
         return (
           <g key={`l${i}`}>
             <path d={`M${x} 32 V78`} stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
-            <path d={`M${x} 32 V78`} stroke="#D4AF7A" strokeWidth="1.4" className="flow-dash" style={{ animationDelay: `${i * 0.18}s` }} />
-            <circle cx={x} cy={92} r={12} fill="#121218" stroke="rgba(212,175,122,0.55)" />
-            <circle cx={x} cy={92} r={3} fill="#D4AF7A" className="pulse-dot" style={{ animationDelay: `${i * 0.22}s` }} />
+            <path d={`M${x} 32 V78`} stroke={C.platinum} strokeWidth="1.4" className="flow-dash" style={{ animationDelay: `${i * 0.18}s` }} />
+            <circle cx={x} cy={92} r={12} fill={C.surface800} stroke="rgba(255,255,255,0.25)" />
+            <circle cx={x} cy={92} r={3} fill={C.platinum} className="pulse-dot" style={{ animationDelay: `${i * 0.22}s` }} />
             <path d={`M${x} 104 Q${x} 128 160 140`} fill="none" stroke="rgba(255,255,255,0.12)" />
-            <path d={`M${x} 104 Q${x} 128 160 140`} fill="none" stroke="#D4AF7A" strokeWidth="1.2" className="flow-dash" style={{ animationDelay: `${0.6 + i * 0.12}s` }} />
+            <path d={`M${x} 104 Q${x} 128 160 140`} fill="none" stroke={C.platinum} strokeWidth="1.2" className="flow-dash" style={{ animationDelay: `${0.6 + i * 0.12}s` }} />
           </g>
         )
       })}
       <text x={14} y={122} className="fill-platinum-dim" fontSize="8" letterSpacing="1.5">SEND × N</text>
-      <rect x={118} y={140} width={84} height={22} rx={11} fill="#191922" stroke="rgba(212,175,122,0.6)" />
-      <text x={160} y={155} textAnchor="middle" fontSize="9" className="fill-gold-300" fontWeight="600">fusion</text>
-      <path d="M160 162 V176" stroke="#D4AF7A" strokeWidth="1.2" />
-      <ellipse cx={160} cy={181} rx={26} ry={5} fill="#191922" stroke="rgba(212,175,122,0.6)" />
-      <path d="M134 181 V197 A26 5 0 0 0 186 197 V181" fill="#121218" stroke="rgba(212,175,122,0.6)" />
+      <rect x={118} y={140} width={84} height={22} rx={11} fill={C.surface700} stroke={alpha(C.gold, 0.7)} />
+      <text x={160} y={155} textAnchor="middle" fontSize="9" className="fill-gold" fontWeight="600">fusion</text>
+      <path d="M160 162 V176" stroke={alpha(C.platinum, 0.6)} strokeWidth="1.2" />
+      <ellipse cx={160} cy={181} rx={26} ry={5} fill={C.surface700} stroke="rgba(255,255,255,0.3)" />
+      <path d="M134 181 V197 A26 5 0 0 0 186 197 V181" fill={C.surface800} stroke="rgba(255,255,255,0.3)" />
       <text x={196} y={194} fontSize="8" className="fill-platinum-dim" letterSpacing="1.2">PGVECTOR</text>
     </svg>
   )
@@ -135,13 +136,13 @@ function Step({ step, index, open, onToggle }) {
       {/* node on the rail */}
       <motion.span
         aria-hidden="true"
-        initial={{ backgroundColor: '#000000', borderColor: 'rgba(255,255,255,0.15)' }}
-        whileInView={{ backgroundColor: '#121218', borderColor: 'rgba(212,175,122,0.8)' }}
+        initial={{ backgroundColor: 'rgb(0, 0, 0)', borderColor: 'rgba(255, 255, 255, 0.12)' }}
+        whileInView={{ backgroundColor: 'rgb(18, 18, 24)', borderColor: 'rgba(245, 243, 239, 0.45)' }}
         viewport={{ once: true, margin: '0px 0px -40% 0px' }}
         transition={{ duration: 0.5 }}
         className="absolute left-0 top-4 grid h-9 w-9 place-items-center rounded-full border sm:left-1 sm:h-10 sm:w-10"
       >
-        <Icon size={15} className="text-gold" />
+        <Icon size={15} className="text-platinum" />
       </motion.span>
 
       <button
@@ -153,14 +154,14 @@ function Step({ step, index, open, onToggle }) {
       >
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <p className="mb-1 font-mono text-[11px] text-gold-600 nums">{String(index + 1).padStart(2, '0')}</p>
+            <p className="mb-1 font-mono text-[11px] text-platinum-dim nums">{String(index + 1).padStart(2, '0')}</p>
             <h3 className="font-display text-lg text-platinum sm:text-xl">{step.title}</h3>
             <p className="mt-1 text-sm leading-relaxed text-platinum-muted">{step.line}</p>
           </div>
           <ChevronDown
             size={18}
             aria-hidden="true"
-            className={`mt-6 shrink-0 text-platinum-dim transition-transform duration-500 ease-lux group-hover:text-gold ${open ? 'rotate-180 text-gold' : ''}`}
+            className={`mt-6 shrink-0 text-platinum-dim transition-transform duration-500 ease-lux group-hover:text-platinum ${open ? 'rotate-180 text-gold' : ''}`}
           />
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5">
@@ -189,7 +190,7 @@ function Step({ step, index, open, onToggle }) {
                 <p className="text-sm leading-relaxed text-platinum-muted">{step.what}</p>
               </div>
               <div>
-                <p className="mb-1.5 text-[10px] uppercase tracking-[0.24em] text-gold-600">Why</p>
+                <p className="mb-1.5 text-[10px] uppercase tracking-[0.24em] text-platinum-dim">Why</p>
                 <p className="text-sm leading-relaxed text-platinum">{step.why}</p>
               </div>
               {step.fan && (
@@ -208,7 +209,7 @@ function Step({ step, index, open, onToggle }) {
 function Phase({ children }) {
   return (
     <motion.li variants={fadeUp} className="relative py-3 pl-12 sm:pl-16">
-      <span className="inline-flex items-center gap-2 rounded-full border border-gold-700/40 bg-gold/[0.06] px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-gold-300">
+      <span className="chip text-[10px] uppercase tracking-[0.24em]">
         {children}
       </span>
     </motion.li>
@@ -243,7 +244,7 @@ export default function Pipeline() {
           <motion.div
             aria-hidden="true"
             style={{ scaleY: fill }}
-            className="absolute bottom-6 left-[17px] top-6 w-px origin-top bg-gradient-to-b from-gold-700 via-gold to-gold-300 sm:left-[23px]"
+            className="absolute bottom-6 left-[17px] top-6 w-px origin-top bg-gradient-to-b from-white/20 via-platinum-muted to-platinum sm:left-[23px]"
           />
           <motion.ol ref={listRef} variants={{ show: { transition: { staggerChildren: 0.05 } } }} className="relative space-y-1">
             <Phase>Once per video · background job</Phase>

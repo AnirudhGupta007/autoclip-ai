@@ -28,13 +28,13 @@ function Nav() {
   return (
     <header
       className={`fixed inset-x-0 top-0 z-50 transition-all duration-500 ease-lux ${
-        solid ? 'glass-strong border-b border-white/5' : 'border-b border-transparent'
+        solid ? 'glass border-x-0 border-t-0' : 'border-b border-transparent'
       }`}
     >
       <nav className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-6">
         <Link to="/" className="group flex items-center gap-2.5" aria-label="AutoClip home">
-          <span className="grid h-8 w-8 place-items-center rounded-lg border border-gold-700/60 bg-obsidian-800">
-            <Scissors size={15} className="text-gold" aria-hidden="true" />
+          <span className="grid h-8 w-8 place-items-center rounded-lg border border-white/10 bg-obsidian-800 shadow-elev-1">
+            <Scissors size={15} className="text-platinum" aria-hidden="true" />
           </span>
           <span className="font-display text-lg tracking-tight">
             AutoClip<span className="text-gold">.</span>
@@ -46,9 +46,16 @@ function Nav() {
           <a href="#agent" className="transition-colors duration-200 hover:text-platinum">Agent</a>
           <a href="#results" className="transition-colors duration-200 hover:text-platinum">Results</a>
           <a href="#decisions" className="transition-colors duration-200 hover:text-platinum">Engineering</a>
+          <Link to="/docs" className="transition-colors duration-200 hover:text-platinum">Docs</Link>
         </div>
 
         <div className="flex items-center gap-2.5 sm:gap-3">
+          <Link
+            to="/docs"
+            className="px-1 text-sm text-platinum-muted transition-colors duration-200 hover:text-platinum lg:hidden"
+          >
+            Docs
+          </Link>
           <Link
             to="/login"
             className="hidden px-2 text-sm text-platinum-muted transition-colors duration-200 hover:text-platinum sm:inline"
@@ -60,13 +67,13 @@ function Nav() {
             target="_blank"
             rel="noreferrer"
             aria-label="Source on GitHub"
-            className="grid h-9 w-9 place-items-center rounded-full border border-white/10 text-platinum-muted transition-colors duration-300 hover:border-white/25 hover:text-platinum"
+            className="icon-btn hidden border border-white/10 sm:grid"
           >
             <Github size={16} aria-hidden="true" />
           </a>
           <Link
             to="/studio"
-            className="group inline-flex items-center gap-2 rounded-full border border-gold-700/50 bg-gold/10 px-4 py-2 text-sm text-gold-300 transition-all duration-300 ease-lux hover:border-gold-600 hover:bg-gold/15 hover:shadow-gold"
+            className="btn btn-primary group"
           >
             Open Studio
             <ArrowRight size={14} className="transition-transform duration-300 ease-lux group-hover:translate-x-0.5" aria-hidden="true" />
@@ -115,13 +122,13 @@ const STEPS = [
   {
     n: '01',
     title: 'It watches the whole thing',
-    body: 'The film is split into two-minute windows analysed in parallel — vision, audio and transcript together. A three-hour feature becomes ninety readings, not one summary.',
+    body: 'Your episode is split into two-minute windows analysed in parallel — transcript and picture together, or transcript alone for audio. An hour becomes thirty readings, not one summary.',
     icon: Waves,
   },
   {
     n: '02',
     title: 'You ask in your own words',
-    body: '“Where he roasts the competitor.” “The quiet emotional beat.” Retrieval runs on meaning against every indexed moment — not a dropdown of five preset styles.',
+    body: '“Where she explains the pricing mistake.” “The funniest story.” Retrieval runs on meaning against every indexed moment — not a dropdown of five preset styles.',
     icon: Search,
   },
   {
@@ -133,7 +140,7 @@ const STEPS = [
 ]
 
 /* ── Film journey (scroll-driven 3D) ────────────────────────── */
-const SOURCE_SECONDS = 1 * 3600 + 32 * 60 + 47
+const SOURCE_SECONDS = 58 * 60 + 47
 const PROMPT = 'give me 5 funny clips under 30s for TikTok'
 
 const timecode = (s) =>
@@ -171,19 +178,19 @@ function ChapterText({ step, title, accent }) {
   const Icon = step.icon
   return (
     <>
-      <p className="mb-5 flex items-center gap-3 text-[11px] uppercase tracking-[0.32em] text-gold-600">
-        <Icon size={14} className="text-gold" aria-hidden="true" />
+      <p className="mb-5 flex items-center gap-3 text-[11px] uppercase tracking-[0.32em] text-platinum-dim">
+        <Icon size={14} className="text-platinum-muted" aria-hidden="true" />
         {step.n} — {step.title}
       </p>
       <h2 className="font-display text-display-lg text-platinum">
-        {title} <span className="block italic text-gold-sheen">{accent}</span>
+        {title} <span className="block italic text-platinum-muted">{accent}</span>
       </h2>
       <p className="mt-5 max-w-md text-sm leading-relaxed text-platinum-muted sm:text-base">{step.body}</p>
     </>
   )
 }
 
-const HEADLINE = ['Every', 'film', 'hides']
+const HEADLINE = ['Every', 'hour', 'hides']
 const ACCENT = ['a', 'hundred', 'moments.']
 
 function HeroCopy() {
@@ -198,8 +205,8 @@ function HeroCopy() {
         {...word(0.1)}
         className="mx-auto mb-7 inline-flex items-center gap-2.5 rounded-full border border-white/10 bg-white/[0.04] px-4 py-1.5 text-[10px] uppercase tracking-[0.16em] text-platinum-muted backdrop-blur-sm sm:text-[11px] sm:tracking-[0.22em]"
       >
-        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-gold" />
-        Hours in. Seconds out.
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-platinum" />
+        Podcasts &amp; videos · up to 1 hour
       </motion.p>
       <h1 className="font-display text-display-xl">
         <span className="block text-platinum">
@@ -209,7 +216,7 @@ function HeroCopy() {
             </motion.span>
           ))}
         </span>
-        <span className="block italic text-gold-400">
+        <span className="block italic text-gold">
           {ACCENT.map((w, i) => (
             <motion.span key={w} {...word(0.55 + i * 0.1)} className="mr-[0.22em] inline-block pr-[0.05em] last:mr-0">
               {w}
@@ -221,20 +228,21 @@ function HeroCopy() {
         {...word(0.95)}
         className="mx-auto mt-7 max-w-xl text-base leading-relaxed text-platinum-muted sm:text-lg"
       >
-        AutoClip is an AI agent that watches your whole video, finds the moments
-        you ask for in plain English, and returns captioned, reframed short clips.
+        AutoClip is an AI agent that listens to your whole podcast or video, finds
+        the moments you ask for in plain English, and returns captioned, reframed
+        short clips.
       </motion.p>
       <motion.div {...word(1.1)} className="mt-9 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
         <Link
           to="/demo"
-          className="group relative inline-flex items-center gap-2.5 overflow-hidden rounded-full bg-gold-sheen bg-[length:200%_auto] px-7 py-3.5 text-sm font-semibold text-obsidian transition-all duration-500 ease-lux hover:bg-[position:80%_50%] hover:shadow-gold"
+          className="btn btn-primary btn-lg group"
         >
           <Play size={14} className="fill-current" aria-hidden="true" />
           Try the live demo
         </Link>
         <Link
           to="/signup"
-          className="group inline-flex items-center gap-2 rounded-full border border-white/15 bg-obsidian/40 px-6 py-3.5 text-sm text-platinum backdrop-blur-sm transition-all duration-300 ease-lux hover:border-gold-700 hover:text-gold-300"
+          className="btn btn-secondary btn-lg group bg-obsidian/40 backdrop-blur-sm"
         >
           Sign up
           <ArrowRight size={15} className="transition-transform duration-300 ease-lux group-hover:translate-x-1" aria-hidden="true" />
@@ -244,13 +252,13 @@ function HeroCopy() {
         {...word(1.22)}
         className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-platinum-muted"
       >
-        <Link to="/studio" className="inline-flex items-center gap-1.5 transition-colors duration-200 hover:text-gold-300">
+        <Link to="/studio" className="inline-flex items-center gap-1.5 transition-colors duration-200 hover:text-platinum">
           Open Studio <ArrowUpRight size={14} aria-hidden="true" />
         </Link>
-        <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 transition-colors duration-200 hover:text-gold-300">
+        <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 transition-colors duration-200 hover:text-platinum">
           <Github size={14} aria-hidden="true" /> Source
         </a>
-        <a href="#how" className="transition-colors duration-200 hover:text-gold-300">
+        <a href="#how" className="transition-colors duration-200 hover:text-platinum">
           See how it works
         </a>
       </motion.div>
@@ -262,8 +270,8 @@ function PromptPill({ progress }) {
   const typed = useTransform(progress, [0.4, 0.5], [0, PROMPT.length], { clamp: true })
   const text = useTransform(typed, (n) => PROMPT.slice(0, Math.round(n)))
   return (
-    <div className="mt-8 flex max-w-md items-center gap-3 rounded-2xl border border-gold-700/40 bg-obsidian-800/80 px-5 py-4 shadow-gold backdrop-blur-md">
-      <Search size={15} className="shrink-0 text-gold" aria-hidden="true" />
+    <div className="surface-raised mt-8 flex max-w-md items-center gap-3 rounded-2xl px-5 py-4">
+      <Search size={15} className="shrink-0 text-platinum-muted" aria-hidden="true" />
       <p className="min-h-[1.25rem] text-sm text-platinum">
         <motion.span>{text}</motion.span>
         <span className="ml-0.5 inline-block h-4 w-px translate-y-0.5 animate-pulse bg-gold" />
@@ -279,9 +287,9 @@ function TimeRail({ progress }) {
     <div className="pointer-events-none absolute bottom-10 right-8 top-24 z-10 hidden flex-col items-end gap-4 md:flex">
       <p className="text-[10px] uppercase tracking-[0.28em] text-platinum-dim">Source</p>
       <div className="relative w-px flex-1 bg-white/10">
-        <motion.div style={{ scaleY }} className="absolute inset-0 origin-top bg-gradient-to-b from-gold-700 to-gold" />
+        <motion.div style={{ scaleY }} className="absolute inset-0 origin-top bg-gradient-to-b from-white/20 to-platinum" />
       </div>
-      <p className="font-mono text-xs text-gold-300 nums">
+      <p className="font-mono text-xs text-platinum nums">
         <motion.span>{tc}</motion.span>
         <span className="text-platinum-dim"> / {timecode(SOURCE_SECONDS)}</span>
       </p>
@@ -317,7 +325,7 @@ function FilmJourney() {
         </Chapter>
 
         <Chapter progress={scrollYProgress} range={[0.14, 0.18, 0.3, 0.35]} className="inset-y-0 left-6 right-6 items-center sm:left-[8%] sm:right-auto sm:max-w-xl">
-          <ChapterText step={STEPS[0]} title="Ninety readings," accent="not one summary." />
+          <ChapterText step={STEPS[0]} title="Thirty readings," accent="not one summary." />
         </Chapter>
 
         <Chapter progress={scrollYProgress} range={[0.36, 0.4, 0.52, 0.57]} className="inset-y-0 left-6 right-6 items-center sm:left-auto sm:right-[10%] sm:max-w-xl">
@@ -326,11 +334,11 @@ function FilmJourney() {
         </Chapter>
 
         <Chapter progress={scrollYProgress} range={[0.64, 0.72, 1, 1.1]} className="inset-x-6 top-[9%] justify-center text-center sm:top-[11%]">
-          <p className="mb-4 text-[11px] uppercase tracking-[0.32em] text-gold-600">
+          <p className="mb-4 text-[11px] uppercase tracking-[0.32em] text-platinum-dim">
             {STEPS[2].n} — {STEPS[2].title}
           </p>
           <h2 className="font-display text-display-md text-platinum sm:text-display-lg">
-            Cut, reframed, captioned. <span className="italic text-gold-sheen">Ready to post.</span>
+            Cut, reframed, captioned. <span className="italic text-platinum-muted">Ready to post.</span>
           </h2>
         </Chapter>
 
@@ -340,7 +348,7 @@ function FilmJourney() {
         >
           Scroll to watch
           <span className="relative h-10 w-px overflow-hidden bg-white/10">
-            <span className="absolute inset-x-0 top-0 h-4 animate-[scrollcue_1.8s_ease-in-out_infinite] bg-gold" />
+            <span className="absolute inset-x-0 top-0 h-4 animate-[scrollcue_1.8s_ease-in-out_infinite] bg-platinum" />
           </span>
         </motion.div>
 
@@ -365,7 +373,7 @@ function Craft() {
     <Section id="craft" className="py-24 sm:py-30">
       <Eyebrow>Capabilities</Eyebrow>
       <motion.h2 variants={fadeUp} className="max-w-2xl font-display text-display-lg text-platinum">
-        Details you'd only notice <span className="italic text-gold-400">if they were wrong.</span>
+        Details you'd only notice <span className="italic text-platinum-muted">if they were wrong.</span>
       </motion.h2>
 
       <div className="mt-16 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -373,9 +381,9 @@ function Craft() {
           <motion.div
             key={title}
             variants={fadeUp}
-            className="glass group rounded-2xl p-7 transition-transform duration-500 ease-lux hover:-translate-y-1"
+            className="surface group rounded-2xl p-7 transition-[transform,border-color] duration-500 ease-lux hover:-translate-y-1 hover:border-white/15"
           >
-            <Icon size={19} className="mb-5 text-gold" aria-hidden="true" />
+            <Icon size={19} className="mb-5 text-platinum-muted" aria-hidden="true" />
             <h3 className="mb-2.5 font-display text-lg text-platinum">{title}</h3>
             <p className="text-sm leading-relaxed text-platinum-muted">{body}</p>
           </motion.div>
@@ -396,12 +404,12 @@ const ENGINE = [
 function Engine() {
   return (
     <Section id="engine" className="py-24 sm:py-30">
-      <div className="glass overflow-hidden rounded-3xl">
+      <div className="surface overflow-hidden rounded-3xl">
         <div className="grid lg:grid-cols-2">
           <div className="p-7 sm:p-14">
             <Eyebrow>Under the hood</Eyebrow>
             <motion.h2 variants={fadeUp} className="font-display text-display-md text-platinum">
-              Built like infrastructure, <span className="italic text-gold-400">not a wrapper.</span>
+              Built like infrastructure, <span className="italic text-platinum-muted">not a wrapper.</span>
             </motion.h2>
             <motion.p variants={fadeUp} className="mt-5 max-w-md text-sm leading-relaxed text-platinum-muted">
               Parallel chunk analysis, a durable job checkpointer, semantic
@@ -418,7 +426,7 @@ function Engine() {
                 variants={fadeUp}
                 className={`p-7 sm:p-8 ${i % 2 === 0 ? 'sm:border-r' : ''} ${i < 2 ? 'border-b' : ''} border-white/8`}
               >
-                <Icon size={16} className="mb-4 text-gold-600" aria-hidden="true" />
+                <Icon size={16} className="mb-4 text-platinum-dim" aria-hidden="true" />
                 <p className="mb-1 text-[10px] uppercase tracking-[0.24em] text-platinum-dim">{k}</p>
                 <p className="text-sm text-platinum">{v}</p>
               </motion.div>
@@ -434,22 +442,22 @@ function Engine() {
 function Closing() {
   return (
     <Section className="py-28 text-center sm:py-32">
-      <div aria-hidden="true" className="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[420px] w-[680px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(closest-side,rgba(212,175,122,0.14),transparent)] blur-2xl" />
+      <div aria-hidden="true" className="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[420px] w-[680px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(closest-side,rgb(var(--c-platinum)/0.06),transparent)] blur-2xl" />
       <motion.h2 variants={fadeUp} className="mx-auto max-w-3xl font-display text-display-lg text-platinum">
-        Give it your longest video.
-        <span className="block italic text-gold-sheen">Ask for the best minute.</span>
+        Give it a full hour.
+        <span className="block italic text-platinum-muted">Ask for the best minute.</span>
       </motion.h2>
       <motion.div variants={fadeUp} className="mt-10 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
         <Link
           to="/demo"
-          className="group inline-flex items-center gap-2.5 rounded-full bg-gold-sheen bg-[length:200%_auto] px-8 py-4 text-sm font-semibold text-obsidian transition-all duration-500 ease-lux hover:bg-[position:80%_50%] hover:shadow-gold"
+          className="btn btn-primary btn-lg group"
         >
           <Play size={14} className="fill-current" aria-hidden="true" />
           Try the live demo
         </Link>
         <Link
           to="/studio"
-          className="group inline-flex items-center gap-2.5 rounded-full border border-white/15 px-7 py-4 text-sm text-platinum transition-all duration-300 ease-lux hover:border-gold-700 hover:text-gold-300"
+          className="btn btn-secondary btn-lg group"
         >
           Open the Studio
           <ArrowRight size={16} className="transition-transform duration-300 ease-lux group-hover:translate-x-1" aria-hidden="true" />
@@ -457,9 +465,9 @@ function Closing() {
       </motion.div>
       <motion.p variants={fadeUp} className="mt-6 text-sm text-platinum-dim">
         New here?{' '}
-        <Link to="/signup" className="text-gold-300 underline decoration-gold-700/50 underline-offset-4 hover:text-gold">Create an account</Link>
+        <Link to="/signup" className="text-platinum underline decoration-white/30 underline-offset-4 hover:decoration-platinum">Create an account</Link>
         {' '}or read the code on{' '}
-        <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="text-gold-300 underline decoration-gold-700/50 underline-offset-4 hover:text-gold">GitHub</a>.
+        <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="text-platinum underline decoration-white/30 underline-offset-4 hover:decoration-platinum">GitHub</a>.
       </motion.p>
     </Section>
   )
@@ -467,7 +475,7 @@ function Closing() {
 
 /* ── Footer with oversized wordmark ─────────────────────────── */
 const FOOTER_COLS = [
-  { title: 'Product', links: [['Live demo', '/demo', true], ['Sign up', '/signup', true], ['Log in', '/login', true], ['Open Studio', '/studio', true]] },
+  { title: 'Product', links: [['Live demo', '/demo', true], ['Sign up', '/signup', true], ['Log in', '/login', true], ['Open Studio', '/studio', true], ['Docs', '/docs', true], ['Privacy', '/docs#privacy', true], ['Terms', '/docs#terms', true]] },
   { title: 'Engine', links: [['How it works', '#pipeline'], ['Agent architecture', '#agent'], ['Results', '#results'], ['Engineering', '#decisions']] },
   { title: 'Source', links: [['GitHub', GITHUB_URL], ['Evaluation method', `${GITHUB_URL}/blob/master/EVALUATION.md`]] },
 ]
@@ -483,11 +491,11 @@ function Footer() {
       <div className="mx-auto grid w-full max-w-6xl grid-cols-2 gap-10 px-5 pt-16 sm:px-6 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
         <div className="col-span-2 md:col-span-1">
           <p className="flex items-center gap-2 text-sm text-platinum">
-            <Scissors size={14} className="text-gold" aria-hidden="true" />
-            AutoClip — conversational video clipping
+            <Scissors size={14} className="text-platinum-muted" aria-hidden="true" />
+            AutoClip — conversational clipping for podcasts &amp; videos
           </p>
           <p className="mt-3 max-w-xs text-xs leading-relaxed text-platinum-dim">
-            Long-form in, short-form out. Ask for a length, a format, a feeling.
+            Up to an hour in, short-form out. Ask for a length, a format, a feeling.
           </p>
           <p className="mt-3 max-w-xs text-[11px] leading-relaxed text-platinum-dim/80">
             Footage: <em>Tears of Steel</em> and <em>Sintel</em> © Blender Foundation,{' '}
@@ -499,7 +507,7 @@ function Footer() {
             href={GITHUB_URL}
             target="_blank"
             rel="noreferrer"
-            className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/10 px-3.5 py-1.5 text-xs text-platinum-muted transition-colors duration-300 hover:border-gold-700 hover:text-gold-300"
+            className="btn btn-secondary btn-sm mt-5 font-normal text-platinum-muted"
           >
             <Github size={13} aria-hidden="true" /> AnirudhGupta007/autoclip-ai
           </a>
@@ -511,12 +519,12 @@ function Footer() {
               {links.map(([label, href, internal]) => (
                 <li key={label}>
                   {internal ? (
-                    <Link to={href} className="transition-colors duration-200 hover:text-gold-300">{label}</Link>
+                    <Link to={href} className="transition-colors duration-200 hover:text-platinum">{label}</Link>
                   ) : (
                     <a
                       href={href}
                       {...(href.startsWith('http') ? { target: '_blank', rel: 'noreferrer' } : {})}
-                      className="inline-flex items-center gap-1.5 transition-colors duration-200 hover:text-gold-300"
+                      className="inline-flex items-center gap-1.5 transition-colors duration-200 hover:text-platinum"
                     >
                       {label === 'GitHub' && <Github size={13} aria-hidden="true" />}
                       {label}
@@ -534,7 +542,7 @@ function Footer() {
         style={{
           y,
           letterSpacing: tracking,
-          backgroundImage: 'linear-gradient(180deg, #EBD6B3 0%, #8C6A3F 55%, rgba(140,106,63,0) 100%)',
+          backgroundImage: 'linear-gradient(180deg, rgb(var(--c-platinum) / 0.9) 0%, rgb(var(--c-platinum) / 0.25) 55%, rgb(var(--c-platinum) / 0) 100%)',
           WebkitBackgroundClip: 'text',
           backgroundClip: 'text',
         }}

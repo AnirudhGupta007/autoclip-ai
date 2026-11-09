@@ -20,7 +20,7 @@ const CARDS = [
   {
     icon: Waypoints,
     title: 'RAG over moments, not style enums',
-    body: 'Moments are embedded and retrieved by meaning, so a request isn’t limited to a menu of five preset styles. “Where he roasts the competitor” is a valid query.',
+    body: 'Moments are embedded and retrieved by meaning, so a request isn’t limited to a menu of five preset styles. “Where she explains the pricing mistake” is a valid query.',
     trade: 'Trade-off: retrieval is only as good as the moment descriptions vision writes.',
     span: 'lg:col-span-2',
   },
@@ -52,10 +52,10 @@ export default function Decisions() {
           <motion.article
             key={title}
             variants={fadeUp}
-            className={`glass group relative overflow-hidden rounded-3xl p-6 transition-transform duration-500 ease-lux hover:-translate-y-1 sm:p-8 ${span}`}
+            className={`surface group relative overflow-hidden rounded-3xl p-6 transition-transform duration-500 ease-lux hover:-translate-y-1 sm:p-8 ${span}`}
           >
-            <span aria-hidden="true" className="absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-gold/50 to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
-            <Icon size={19} className="mb-5 text-gold" aria-hidden="true" />
+            <span aria-hidden="true" className="absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
+            <Icon size={19} className="mb-5 text-platinum-muted" aria-hidden="true" />
             <h3 className="mb-2.5 font-display text-lg text-platinum">{title}</h3>
             <p className="text-sm leading-relaxed text-platinum-muted">{body}</p>
             <p className="mt-4 text-xs leading-relaxed text-platinum-dim">{trade}</p>

@@ -9,18 +9,18 @@ const LIMITS = [
   },
   {
     title: 'Vision sees frames, not motion',
-    now: 'Each window is read from sampled frames, so a fast gag or a quick action beat can fall between two of them.',
+    now: 'Each window is read from sampled frames, so a quick visual beat can fall between two of them. On podcasts the picture adds little, so ranking leans almost entirely on the dialogue.',
     next: 'Shot-aware sampling that spends frames where scenes change.',
   },
   {
     title: 'It scales up, not out',
-    now: 'One 2 GB box runs the database, queue, API and ffmpeg. Two long films analysed at once will contend for it.',
+    now: 'One 2 GB box runs the database, queue, API and ffmpeg. Two hour-long uploads analysed at once will contend for it.',
     next: 'Separate ffmpeg and analysis workers behind a real job queue.',
   },
   {
-    title: 'One film, one labeller',
-    now: 'The eval is a single 98-minute film labelled by one person. It shows the direction of change well, but it is not a benchmark.',
-    next: 'More films and genres, and a second labeller to measure agreement.',
+    title: 'A few sources, one labeller',
+    now: 'The eval set is a handful of long videos and podcasts, labelled by one person. It shows the direction of change well, but it is not a benchmark.',
+    next: 'More shows and genres, and a second labeller to measure agreement.',
   },
 ]
 
@@ -37,11 +37,11 @@ export default function Limits() {
             variants={fadeUp}
             className="grid gap-3 border-t border-white/8 py-7 md:grid-cols-[3rem_minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1fr)] md:gap-8"
           >
-            <p className="font-mono text-xs text-gold-600 nums md:pt-1">0{i + 1}</p>
+            <p className="font-mono text-xs text-platinum-dim nums md:pt-1">0{i + 1}</p>
             <h3 className="font-display text-lg text-platinum">{l.title}</h3>
             <p className="text-sm leading-relaxed text-platinum-muted">{l.now}</p>
             <p className="text-sm leading-relaxed text-platinum">
-              <span className="mr-2 text-[10px] uppercase tracking-[0.22em] text-gold-600">Next</span>
+              <span className="mr-2 text-[10px] uppercase tracking-[0.22em] text-platinum-dim">Next</span>
               {l.next}
             </p>
           </motion.div>

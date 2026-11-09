@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
 import { Bot, Compass, Gavel, Wrench, Cog } from 'lucide-react'
 import { EASE, Section, SectionHead, fadeUp, useMediaQuery } from './primitives'
+import { C, alpha } from '../../theme'
 
 /*
  * Orchestrator + 3 subagents + 5 tools, drawn from agent/orchestrator.py and
@@ -115,24 +116,24 @@ function Node({ id, b, active, dim, onPick, toolFont }) {
         width={b.w}
         height={b.h}
         rx={isTool ? b.h / 2 : 14}
-        fill={isOrch ? '#191922' : '#121218'}
-        stroke={active ? '#D4AF7A' : isOrch ? 'rgba(212,175,122,0.55)' : 'rgba(255,255,255,0.12)'}
+        fill={isOrch ? C.surface700 : C.surface800}
+        stroke={active ? C.gold : isOrch ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.12)'}
         strokeWidth={active ? 1.6 : 1}
         style={{ transition: 'stroke .3s' }}
       />
       {active && (
-        <rect x={b.x - b.w / 2 - 4} y={b.y - b.h / 2 - 4} width={b.w + 8} height={b.h + 8} rx={(isTool ? b.h / 2 : 14) + 4} fill="none" stroke="rgba(212,175,122,0.22)" />
+        <rect x={b.x - b.w / 2 - 4} y={b.y - b.h / 2 - 4} width={b.w + 8} height={b.h + 8} rx={(isTool ? b.h / 2 : 14) + 4} fill="none" stroke={alpha(C.gold, 0.22)} />
       )}
       {isTool ? (
-        <text x={b.x} y={b.y + 3.5} textAnchor="middle" fontFamily='"JetBrains Mono", ui-monospace, monospace' fontSize={toolFont} fill={active ? '#EBD6B3' : '#D2CDC4'}>
+        <text x={b.x} y={b.y + 3.5} textAnchor="middle" fontFamily='"JetBrains Mono", ui-monospace, monospace' fontSize={toolFont} fill={active ? C.gold300 : C.platinumMuted}>
           {n.title}
         </text>
       ) : (
         <>
-          <text x={b.x} y={b.y - (isOrch ? 3 : 2)} textAnchor="middle" fontFamily='"Plus Jakarta Sans", Inter, sans-serif' fontWeight="700" fontSize={isOrch ? 15 : 12.5} fill="#F5F3EF">
+          <text x={b.x} y={b.y - (isOrch ? 3 : 2)} textAnchor="middle" fontFamily='"Plus Jakarta Sans", Inter, sans-serif' fontWeight="700" fontSize={isOrch ? 15 : 12.5} fill={C.platinum}>
             {n.title}
           </text>
-          <text x={b.x} y={b.y + (isOrch ? 15 : 13)} textAnchor="middle" fontSize={isOrch ? 10.5 : 9.5} fill={isOrch ? '#D4AF7A' : '#9C978E'}>
+          <text x={b.x} y={b.y + (isOrch ? 15 : 13)} textAnchor="middle" fontSize={isOrch ? 10.5 : 9.5} fill={isOrch ? C.platinumMuted : C.platinumDim}>
             {n.sub}
           </text>
         </>
@@ -192,7 +193,7 @@ export default function AgentArchitecture() {
 
       <div className="mt-12 grid items-start gap-8">
         <motion.div variants={fadeUp} className="relative mx-auto w-full max-w-5xl">
-          <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 rounded-[2rem] bg-[radial-gradient(60%_50%_at_50%_0%,rgba(212,175,122,0.10),transparent)]" />
+          <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 rounded-[2rem] bg-[radial-gradient(60%_50%_at_50%_0%,rgba(245,243,239,0.05),transparent)]" />
           <svg
             viewBox={`0 0 ${L.vb[0]} ${L.vb[1]}`}
             className="h-auto w-full"
@@ -207,7 +208,7 @@ export default function AgentArchitecture() {
               return (
                 <g key={e.id}>
                   <path d={d} fill="none" stroke={base} strokeWidth="1" strokeDasharray={e.type === 'direct' ? '2 5' : undefined} />
-                  {on && <path d={d} fill="none" stroke="#D4AF7A" strokeWidth="1.6" className="flow-dash-long" />}
+                  {on && <path d={d} fill="none" stroke={C.gold} strokeWidth="1.6" className="flow-dash-long" />}
                 </g>
               )
             })}
@@ -226,20 +227,20 @@ export default function AgentArchitecture() {
           </svg>
         </motion.div>
 
-        <motion.div variants={fadeUp} className="glass relative mx-auto min-h-[200px] w-full max-w-3xl rounded-3xl p-6 sm:p-7" aria-live="polite">
+        <motion.div variants={fadeUp} className="surface relative mx-auto min-h-[200px] w-full max-w-3xl rounded-3xl p-6 sm:p-7" aria-live="polite">
           <motion.div
               key={sel}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.35, ease: EASE }}
             >
-              <p className="mb-3 text-[10px] uppercase tracking-[0.28em] text-gold-600">{n.kind}</p>
+              <p className="mb-3 text-[10px] uppercase tracking-[0.28em] text-platinum-dim">{n.kind}</p>
               <h3 className={`mb-3 break-words text-platinum ${n.kind === 'Tool' ? 'font-mono text-base' : 'font-display text-xl'}`}>{n.title}</h3>
               <p className="text-sm leading-relaxed text-platinum-muted">{n.body}</p>
               {SUB_TOOLS[sel] && (
                 <div className="mt-4 flex flex-wrap gap-1.5">
                   {SUB_TOOLS[sel].map((t) => (
-                    <span key={t} className="rounded-full border border-gold-700/40 bg-gold/[0.06] px-2.5 py-1 font-mono text-[11px] text-gold-300">
+                    <span key={t} className="rounded-full border border-white/12 bg-white/[0.03] px-2.5 py-1 font-mono text-[11px] text-platinum-muted">
                       {NODES[t].title}
                     </span>
                   ))}
@@ -254,7 +255,7 @@ export default function AgentArchitecture() {
 
       <motion.div variants={fadeUp} className="mt-16">
         <h3 className="mb-6 font-display text-display-md text-platinum">
-          Why an agent <span className="italic text-gold-400">and not a fixed script?</span>
+          Why an agent <span className="italic text-platinum-muted">and not a fixed script?</span>
         </h3>
         <div className="grid gap-x-10 gap-y-7 md:grid-cols-3">
           {[
@@ -263,8 +264,8 @@ export default function AgentArchitecture() {
             ['The agent decides, the tools act', 'Cutting, scoring and indexing are deterministic tools. The model only chooses which ones to call, and a hard rule stops it from reporting a clip a tool did not return.'],
           ].map(([t, b], i) => (
             <div key={t} className="relative pl-5">
-              <span aria-hidden="true" className="absolute left-0 top-1 h-[calc(100%-0.25rem)] w-px bg-gradient-to-b from-gold to-transparent" />
-              <p className="mb-1 font-mono text-[11px] text-gold-600 nums">0{i + 1}</p>
+              <span aria-hidden="true" className="absolute left-0 top-1 h-[calc(100%-0.25rem)] w-px bg-gradient-to-b from-white/30 to-transparent" />
+              <p className="mb-1 font-mono text-[11px] text-platinum-dim nums">0{i + 1}</p>
               <p className="mb-2 font-display text-base text-platinum">{t}</p>
               <p className="text-sm leading-relaxed text-platinum-muted">{b}</p>
             </div>

@@ -18,12 +18,12 @@ export default function TechStack() {
         <dl className="grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
           {STACK.map(([k, items]) => (
             <div key={k}>
-              <dt className="mb-2.5 text-[10px] uppercase tracking-[0.24em] text-gold-600">{k}</dt>
+              <dt className="mb-2.5 text-[10px] uppercase tracking-[0.24em] text-platinum-dim">{k}</dt>
               <dd className="flex flex-wrap gap-1.5">
                 {items.map((t) => (
                   <span
                     key={t}
-                    className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1 text-xs text-platinum-muted transition-colors duration-300 hover:border-gold-700/60 hover:text-platinum"
+                    className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1 text-xs text-platinum-muted transition-colors duration-300 hover:border-white/20 hover:text-platinum"
                   >
                     {t}
                   </span>
