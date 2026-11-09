@@ -74,10 +74,14 @@ export const getDownloadUrl = (id, format) => `/api/clips/${id}/download/${forma
 // Music
 export const searchMusic = (q, mood) => api.get('/music/search', { params: { q, mood } })
 
-// Chat — the conversation thread is scoped server-side to the signed-in
-// user + video, so no client id is sent any more.
-export const sendChatMessage = (message, videoId) =>
-  api.post('/chat/message', { message, video_id: videoId }, { timeout: CHAT_TIMEOUT_MS })
+// Chat — the thread is scoped server-side to the signed-in user. With a
+// conversation_id it belongs to that conversation (see API_CONTRACT.md).
+export const sendChatMessage = (message, videoId, conversationId) =>
+  api.post(
+    '/chat/message',
+    { message, video_id: videoId, ...(conversationId ? { conversation_id: conversationId } : {}) },
+    { timeout: CHAT_TIMEOUT_MS },
+  )
 
 export const getQuota = () => api.get('/chat/quota')
 
@@ -100,9 +104,10 @@ const SSE_EVENTS = {
   clips_done: 'onClipsDone',
 }
 
-export const openPipelineStream = (videoId, handlers = {}) => {
+export const openPipelineStream = (videoId, handlers = {}, conversationId = null) => {
   // Same-origin, so the session cookie is sent; withCredentials covers dev proxies.
-  const es = new EventSource(`/api/chat/stream/${videoId}`, { withCredentials: true })
+  const qs = conversationId ? `?conversation_id=${encodeURIComponent(conversationId)}` : ''
+  const es = new EventSource(`/api/chat/stream/${videoId}${qs}`, { withCredentials: true })
   Object.entries(SSE_EVENTS).forEach(([event, key]) => {
     const h = handlers[key]
     if (!h) return
@@ -115,6 +120,18 @@ export const openPipelineStream = (videoId, handlers = {}) => {
   if (handlers.onError) es.onerror = handlers.onError
   return es
 }
+
+// Conversations (chat history per user)
+export const listConversations = () => api.get('/conversations')
+export const createConversation = (videoId) =>
+  api.post('/conversations', videoId ? { video_id: videoId } : {})
+export const getConversationMessages = (id) => api.get(`/conversations/${id}/messages`)
+export const renameConversation = (id, title) => api.patch(`/conversations/${id}`, { title })
+export const deleteConversation = (id) => api.delete(`/conversations/${id}`)
+
+// Account
+export const getUsage = () => api.get('/me/usage')
+export const deleteAccount = () => api.delete('/me')
 
 // Semantic moment search (Phase 2.5)
 export const searchMoments = (query, { videoId, limit = 10 } = {}) =>
