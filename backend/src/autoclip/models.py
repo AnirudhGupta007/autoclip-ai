@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Float, Integer, Text, ForeignKey, DateTime, JSON, Boolean
+from sqlalchemy import Column, String, Float, Integer, Text, ForeignKey, DateTime, JSON, Boolean, false
 from sqlalchemy.orm import relationship
 from autoclip.config import DATABASE_URL
 from autoclip.database import Base
@@ -128,3 +128,29 @@ class MomentRecord(Base):
     categories = Column(JSON, nullable=True)   # moment_tagger.CATEGORIES (None = not tagged yet)
     why = Column(Text, nullable=True)          # one-line "why it works"
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class Conversation(Base):
+    """One chat in the Studio sidebar. Its LangGraph thread is
+    `u:{user_id}:c:{id}` (routers/chat.chat_thread_id)."""
+    __tablename__ = "conversations"
+
+    id = Column(String, primary_key=True, default=generate_id)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # SET NULL: deleting a video keeps the conversation (and its messages).
+    video_id = Column(String, ForeignKey("videos.id", ondelete="SET NULL"), nullable=True)
+    title = Column(String(200), nullable=False, default="", server_default="")
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow)
+
+
+class Message(Base):
+    __tablename__ = "messages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    conversation_id = Column(String, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
+    role = Column(String(16), nullable=False)        # "user" | "assistant"
+    content = Column(Text, nullable=False, default="")
+    clips_json = Column(JSON, nullable=True)          # clip dicts as the chat API returned them
+    pending = Column(Boolean, nullable=False, default=False, server_default=false())
+    created_at = Column(DateTime, default=utcnow)

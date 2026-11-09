@@ -144,7 +144,7 @@ def delete_video(video_id: str, db: Session = Depends(get_db), user: User = Depe
     old order removed the files and then failed on the moments FK, leaving a
     DB row pointing at nothing.
     """
-    from autoclip.models import Clip
+    from autoclip.models import Clip, Conversation
     from autoclip.services.moment_store import delete_moments
     from autoclip.utils import analysis_jobs
 
@@ -154,6 +154,9 @@ def delete_video(video_id: str, db: Session = Depends(get_db), user: User = Depe
 
     try:
         delete_moments(db, video_id)  # moments table + data_moment_nodes vectors
+        # Chats about this video stay (SET NULL isn't enforced on SQLite).
+        db.query(Conversation).filter(Conversation.video_id == video_id).update(
+            {Conversation.video_id: None}, synchronize_session=False)
         db.query(Clip).filter(Clip.video_id == video_id).delete(synchronize_session=False)
         db.delete(video)
         db.commit()

@@ -8,7 +8,10 @@ Async analysis contract
 -----------------------
 All endpoints require a signed-in user; another user's video_id is a 404.
 
-POST /api/chat/message {message, video_id?}
+POST /api/chat/message {message, video_id?, conversation_id?}
+  • With conversation_id (the caller's, else 404): the agent thread is
+    `u:{uid}:c:{cid}` and the prompt + reply are stored in that
+    conversation (services/conversations.py). Without it: thread per video.
   • Video not analysed yet (uploaded/failed): starts the background analysis
     job, charges ONE quota unit, and returns immediately with
     `is_processing=true, pending_request=true, analysis={status, progress,
@@ -41,7 +44,8 @@ from autoclip.agent import tools as agent_tools
 from autoclip.auth.deps import current_user, get_owned_video
 from autoclip.database import get_db
 from autoclip.models import User
-from autoclip.services import rate_limit
+from autoclip.services import conversations, rate_limit
+from autoclip.services.conversations import get_owned_conversation
 from autoclip.utils import analysis_jobs
 
 logger = logging.getLogger(__name__)
@@ -53,6 +57,9 @@ GENERIC_ERROR = "Something went wrong on our side and your query wasn't charged.
 class ChatMessage(BaseModel):
     message: str = Field(max_length=2000)
     video_id: Optional[str] = None
+    # Chat history (routers/conversations.py). Optional: without it the
+    # thread is per user + video, as before.
+    conversation_id: Optional[str] = Field(default=None, max_length=64)
     # Legacy per-tab id from older frontends. Ignored: threads are now scoped
     # to the authenticated user (see chat_thread_id).
     client_id: Optional[str] = None
@@ -69,13 +76,17 @@ class ChatResponse(BaseModel):
     queries_remaining: Optional[int] = None
 
 
-def chat_thread_id(user_id: int, video_id: Optional[str]) -> str:
+def chat_thread_id(user_id: int, video_id: Optional[str], conversation_id: Optional[str] = None) -> str:
     """The ONE place a LangGraph chat thread id is built.
 
-    Scoped to the authenticated user (and video), so visitors never share a
-    conversation and a thread can't collide with any other user's — or with
-    the analysis pipeline's own ids.
+    Scoped to the authenticated user (and conversation, or video for callers
+    without one), so visitors never share a thread and a thread can't collide
+    with any other user's — or with the analysis pipeline's own ids. Old
+    `u:{uid}:v:{vid}` checkpoints stay in Postgres, unread once a
+    conversation is used.
     """
+    if conversation_id:
+        return f"u:{int(user_id)}:c:{conversation_id}"
     return f"u:{int(user_id)}:v:{video_id}" if video_id else f"u:{int(user_id)}:novideo"
 
 
@@ -114,6 +125,18 @@ def _fmt_eta(seconds: Optional[int]) -> str:
         return "a few minutes"
     m = round(seconds / 60)
     return "under a minute" if m < 1 else f"about {m} min"
+
+
+def _analysing_text(state: dict) -> str:
+    return (f"Still analysing your video — {state.get('progress', 0)}% done, "
+            f"{_fmt_eta(state.get('eta_seconds'))} left. I'll pick up your request "
+            "automatically as soon as it's ready.")
+
+
+def _started_text(state: dict) -> str:
+    return (f"First I need to watch the whole video — analysis started, "
+            f"{_fmt_eta(state.get('eta_seconds'))}. You'll see progress here, and I'll "
+            "make your clips automatically when it's done.")
 
 
 def _public_analysis(state: dict) -> dict:
@@ -166,6 +189,16 @@ async def chat_message(msg: ChatMessage, request: Request, response: Response,
 
     ip = rate_limit.client_ip(request)
     credit_subject = _credit_subject(user)
+    conv_id = msg.conversation_id or None
+    if conv_id:
+        get_owned_conversation(db, user, conv_id)  # 404 for anyone else's conversation
+
+    async def _reply(resp: ChatResponse) -> ChatResponse:
+        """Store the turn in the conversation (if any), then answer."""
+        if conv_id:
+            await asyncio.to_thread(conversations.record_turn, user.id, conv_id, message, resp.response,
+                                    resp.clips, video_id=video_id, pending=resp.pending_request)
+        return resp
 
     # ── Gate: the video must be analysed before the agent can do anything ──
     if video_id:
@@ -176,14 +209,12 @@ async def chat_message(msg: ChatMessage, request: Request, response: Response,
             raise HTTPException(404, "Video not found")
 
         if state["status"] == analysis_jobs.ANALYZING:
-            return ChatResponse(
-                response=(f"Still analysing your video — {state.get('progress', 0)}% done, "
-                          f"{_fmt_eta(state.get('eta_seconds'))} left. I'll pick up your request "
-                          "automatically as soon as it's ready."),
+            return await _reply(ChatResponse(
+                response=_analysing_text(state),
                 is_processing=True, pending_request=True,
                 analysis=_public_analysis(state),
                 queries_remaining=rate_limit.remaining(user),
-            )
+            ))
 
         if state["status"] != analysis_jobs.ANALYZED:
             allowed, left, reason, charge = rate_limit.try_consume(user, ip)
@@ -205,13 +236,11 @@ async def chat_message(msg: ChatMessage, request: Request, response: Response,
             if res["result"] == "already_analyzed":
                 pass  # raced with a job that just finished — fall through to the agent
             else:
-                return ChatResponse(
-                    response=(f"First I need to watch the whole video — analysis started, "
-                              f"{_fmt_eta(st.get('eta_seconds'))}. You'll see progress here, and I'll "
-                              "make your clips automatically when it's done."),
+                return await _reply(ChatResponse(
+                    response=_started_text(st),
                     is_processing=True, pending_request=True,
                     analysis=_public_analysis(st), queries_remaining=left,
-                )
+                ))
 
     # ── Agent turn ──
     db.close()
@@ -228,8 +257,8 @@ async def chat_message(msg: ChatMessage, request: Request, response: Response,
     # user_id travels two ways so every tool can check ownership without
     # trusting LLM-supplied ids: RunnableConfig (inherited by subagents) and
     # a ContextVar backstop set inside the worker thread below.
-    run_config = {"configurable": {"thread_id": chat_thread_id(user.id, video_id),
-                                   "user_id": user.id}}
+    run_config = {"configurable": {"thread_id": chat_thread_id(user.id, video_id, conv_id),
+                                   "user_id": user.id, "conversation_id": conv_id}}
     context_message = (
         f"[current video_id: {video_id}]\n{message}" if video_id
         else f"[no video uploaded yet]\n{message}"
@@ -258,7 +287,7 @@ async def chat_message(msg: ChatMessage, request: Request, response: Response,
             analysis_jobs.grant_followup_credit(credit_subject, video_id)  # give the free pass back
         else:
             rate_limit.refund(charge)  # our failure, not the visitor's — don't charge them
-        return ChatResponse(response=GENERIC_ERROR, queries_remaining=rate_limit.remaining(user))
+        return await _reply(ChatResponse(response=GENERIC_ERROR, queries_remaining=rate_limit.remaining(user)))
 
     # Clips created/modified in THIS turn only (not the thread's history).
     clip_ids = list(turn_clip_ids)
@@ -279,24 +308,25 @@ async def chat_message(msg: ChatMessage, request: Request, response: Response,
             # The agent itself kicked off a (re-)analysis this turn.
             analysis, is_processing = _public_analysis(st), True
 
-    return ChatResponse(
+    return await _reply(ChatResponse(
         response=response_text,
         clips=clips or None,
         moment_count=moment_count,
         is_processing=is_processing,
         analysis=analysis,
         queries_remaining=left,
-    )
+    ))
 
 
 @router.get("/stream/{video_id}")
-async def stream_pipeline_events(video_id: str, request: Request,
+async def stream_pipeline_events(video_id: str, request: Request, conversation_id: Optional[str] = None,
                                  user: User = Depends(current_user), db: Session = Depends(get_db)):
     """SSE stream of live pipeline events for a video (Redis pub/sub).
 
     Sends a `status` snapshot first so a client that connects late (or
     reconnects) knows where analysis stands. Never closes itself on an event —
-    the client closes it when it's done listening."""
+    the client closes it when it's done listening. `conversation_id` is
+    accepted and ignored (events are per video)."""
     get_owned_video(db, user, video_id)
     db.close()  # the stream can stay open for an hour
 

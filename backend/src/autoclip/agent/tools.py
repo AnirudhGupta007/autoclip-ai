@@ -88,7 +88,34 @@ def _user_id(config: Optional[RunnableConfig]) -> Optional[int]:
         logger.error("agent tool: user mismatch config=%s context=%s", cfg_uid, ctx_uid)
         return None
     uid = cfg_uid if cfg_uid is not None else ctx_uid
-    return int(uid) if uid is not None else None
+    if uid is None:
+        return None
+    if isinstance(config, dict) and not _thread_belongs_to(int(uid), config):
+        return None
+    return int(uid)
+
+
+def _thread_belongs_to(user_id: int, config: dict) -> bool:
+    """The run's chat thread must be this user's: `u:{uid}:...`, and for a
+    conversation thread `u:{uid}:c:{cid}` the conversation must be theirs
+    (the router already checked; this catches a forged or stale config)."""
+    configurable = config.get("configurable") or {}
+    thread = str(configurable.get("thread_id") or "")
+    if not thread.startswith("u:"):
+        return True   # no chat thread (direct tool use, tests, scripts)
+    parts = thread.split(":")
+    if len(parts) < 3 or parts[1] != str(user_id):
+        logger.error("agent tool: thread %s does not belong to user %s", thread, user_id)
+        return False
+    if parts[2] == "c":
+        cid = ":".join(parts[3:])
+        if configurable.get("conversation_id") not in (None, cid):
+            return False
+        from autoclip.services.conversations import user_owns_conversation
+        if not user_owns_conversation(user_id, cid):
+            logger.error("agent tool: conversation %s is not user %s's", cid, user_id)
+            return False
+    return True
 
 
 def _owns_video(user_id: Optional[int], video_id: str) -> bool:
