@@ -155,6 +155,7 @@ def video_state(video_id: str) -> dict:
         clip_count = db.query(Clip).filter(Clip.video_id == video_id).count()
         raw = _LEGACY.get(video.status or UPLOADED, video.status or UPLOADED)
         duration = video.duration
+        archived = bool(video.archived)
     finally:
         db.close()
 
@@ -187,6 +188,7 @@ def video_state(video_id: str) -> dict:
         "chunks_total": progress.get("chunks_total"),
         "eta_seconds": _eta(progress, duration) if status == ANALYZING else None,
         "error": error,
+        "archived": archived,
     }
     return out
 
@@ -198,8 +200,9 @@ def start_analysis(video_id: str, on_fail: Optional[Callable[[], None]] = None,
     """Start analysing `video_id` in the background unless it is already
     running (or already analysed and not `force`). Never blocks on the work.
 
-    Returns {"result": started|already_running|already_analyzed|not_found,
-             "state": video_state(...)}.
+    Returns {"result": started|already_running|already_analyzed|not_found|archived,
+             "state": video_state(...)}. "archived": the source file is gone
+    (services/storage.py), so there is nothing to analyse.
     """
     from autoclip.database import SessionLocal
     from autoclip.models import Video
@@ -212,6 +215,8 @@ def start_analysis(video_id: str, on_fail: Optional[Callable[[], None]] = None,
             return {"result": "already_running", "state": state}
         if state["status"] == ANALYZED and not force:
             return {"result": "already_analyzed", "state": state}
+        if state.get("archived"):
+            return {"result": "archived", "state": state}
 
         db = SessionLocal()
         try:

@@ -67,10 +67,11 @@ class UserOut(BaseModel):
     max_video_minutes: Optional[int] = None
     queries_remaining: Optional[int] = None
     query_limit: Optional[int] = None
+    google_linked: bool = False      # Google sign-in isn't wired up yet
 
 
 def user_out(db: Session, user: User) -> UserOut:
-    count = db.query(Video).filter(Video.user_id == user.id).count()
+    count = db.query(Video).filter(Video.user_id == user.id, Video.archived.is_(False)).count()
     limited = not user.is_admin
     return UserOut(
         id=user.id, email=user.email, is_admin=bool(user.is_admin), is_demo=bool(user.is_demo),

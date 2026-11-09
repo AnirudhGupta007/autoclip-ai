@@ -67,6 +67,13 @@ def optional_user(request: Request, response: Response, db: Session = Depends(ge
         db.commit()
         db.refresh(user)  # keep attributes loaded: routers may close the session early
         set_session_cookie(response, token)
+    # Activity for the inactive-account rule (services/storage.py): one
+    # write per user per hour at most.
+    now = utcnow()
+    if user.last_active_at is None or now - user.last_active_at > timedelta(hours=1):
+        user.last_active_at = now
+        db.commit()
+        db.refresh(user)
     request.state.user_id = user.id
     return user
 

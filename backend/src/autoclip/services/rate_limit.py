@@ -132,6 +132,11 @@ class Charge:
     keys: list[str] = field(default_factory=list)
 
 
+def used(user) -> int:
+    """Agent runs charged to this user today (admins are never charged)."""
+    return _get(_user_key(user))
+
+
 def remaining(user) -> Optional[int]:
     limit = chat_limit(user)
     if limit is None:

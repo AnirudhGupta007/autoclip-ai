@@ -226,6 +226,11 @@ async def chat_message(msg: ChatMessage, request: Request, response: Response,
                 analysis_jobs.revoke_followup_credit(subj, vid)
 
             res = await asyncio.to_thread(analysis_jobs.start_analysis, video_id, _on_fail)
+            if res["result"] == "archived":
+                rate_limit.refund(charge)
+                from autoclip.services.storage import ARCHIVED_MESSAGE
+                return await _reply(ChatResponse(response=ARCHIVED_MESSAGE,
+                                                 queries_remaining=rate_limit.remaining(user)))
             if res["result"] == "started":
                 analysis_jobs.grant_followup_credit(credit_subject, video_id)
             else:

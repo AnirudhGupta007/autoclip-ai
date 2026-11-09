@@ -128,6 +128,11 @@ def _owns_video(user_id: Optional[int], video_id: str) -> bool:
         db.close()
 
 
+def _archived_message() -> str:
+    from autoclip.services.storage import ARCHIVED_MESSAGE
+    return ARCHIVED_MESSAGE
+
+
 def begin_turn() -> tuple[list, contextvars.Token]:
     bucket: list = []
     return bucket, _turn_collector.set(bucket)
@@ -217,7 +222,7 @@ def ingest_and_analyze_video(video_id: str, config: RunnableConfig = None) -> di
     per-chunk multimodal moment analysis) as a BACKGROUND job and return
     immediately. Long videos take many minutes (~12 min per hour of video).
     Returns {"status": "started" | "already_running" | "already_analyzed" |
-    "not_found", "eta_minutes", "message"}. While it runs you cannot produce
+    "not_found" | "archived" | "daily_cap", "eta_minutes", "message"}. While it runs you cannot produce
     clips — tell the user analysis is running and roughly how long it takes;
     the app notifies them and resumes their request when it finishes."""
     if not _owns_video(_user_id(config), video_id):
@@ -231,6 +236,8 @@ def ingest_and_analyze_video(video_id: str, config: RunnableConfig = None) -> di
         "already_running": f"Analysis is already running ({state.get('progress', 0)}% done, about {eta_min} min left).",
         "already_analyzed": f"This video is already analyzed ({state.get('moment_count', 0)} moments).",
         "not_found": f"No video found with id {video_id}.",
+        "archived": _archived_message(),
+        "daily_cap": "The site has used today's analysis minutes. Please try again tomorrow.",
     }
     return {"status": res["result"], "eta_minutes": eta_min, "message": msgs[res["result"]]}
 
@@ -308,6 +315,8 @@ def select_and_produce_clips(
     status is one of: "ok" (clips were produced and written to disk),
     "video_not_found", "analyzing" (analysis still running — wait),
     "not_analyzed" (call ingest_and_analyze_video first),
+    "archived" (the source file was deleted by the storage rules — old
+    clips still play, new ones need a re-upload),
     "no_match" (analyzed, but nothing matched the query). Only "ok" with
     clips_produced > 0 means clips actually exist — report `message` to the
     user verbatim for any other status. `count` is how many clips the
@@ -341,6 +350,11 @@ def select_and_produce_clips(
             return {"status": "not_analyzed", "clips_produced": 0, "clips": [],
                     "message": ("This video has no analyzed moments yet, so NO clips were "
                                 "produced. Call ingest_and_analyze_video first, then retry.")}
+
+        if video.archived:
+            from autoclip.services.storage import ARCHIVED_MESSAGE
+            return {"status": "archived", "clips_produced": 0, "clips": [],
+                    "message": ARCHIVED_MESSAGE + " NO clips were produced."}
 
         moment_map = [_row_to_moment(r) for r in moments_rows]
 

@@ -102,6 +102,9 @@ async def apply_clip_update(db: Session, clip: Clip, video: Video | None, update
         validate_window(new_start, new_end, video.duration if video else None)
     if (trim or restyle) and not video:
         raise ClipUpdateError("The source video for this clip no longer exists.")
+    if (trim or restyle) and video.archived:
+        from autoclip.services.storage import ARCHIVED_MESSAGE
+        raise ClipUpdateError(ARCHIVED_MESSAGE)
 
     if update.title is not None:
         clip.title = update.title

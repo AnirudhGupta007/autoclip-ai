@@ -14,6 +14,13 @@ def _int(name: str, default: int) -> int:
         return default
 
 
+def _float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
 def _list(name: str, default: str = "") -> list[str]:
     return [x.strip() for x in os.getenv(name, default).split(",") if x.strip()]
 
@@ -53,10 +60,11 @@ DEMO_DAILY_QUERY_LIMIT = _int("DEMO_DAILY_QUERY_LIMIT", 10)   # shared by every 
 # 0 disables. Per-user limit is config.DAILY_QUERY_LIMIT.
 IP_DAILY_QUERY_LIMIT = _int("IP_DAILY_QUERY_LIMIT", 20)
 
-# Upload caps. MAX_VIDEOS_PER_USER is for non-admins only; the length cap
-# applies to admins too unless VIDEO_MINUTES_CAP_ADMINS=0 (podcast/1-hour
-# scope — longer analyses are what cost money).
-MAX_VIDEOS_PER_USER = _int("MAX_VIDEOS_PER_USER", 5)
+# Upload caps. MAX_VIDEOS_PER_USER counts active (not archived) uploads and
+# is for non-admins only; the length cap applies to admins too unless
+# VIDEO_MINUTES_CAP_ADMINS=0 (podcast/1-hour scope — longer analyses are
+# what cost money).
+MAX_VIDEOS_PER_USER = _int("MAX_VIDEOS_PER_USER", 3)
 MAX_VIDEO_MINUTES_DEMO = _int("MAX_VIDEO_MINUTES_DEMO", 60)
 VIDEO_MINUTES_CAP_ADMINS = os.getenv("VIDEO_MINUTES_CAP_ADMINS", "1").strip().lower() in {"1", "true", "yes"}
 
@@ -64,3 +72,18 @@ VIDEO_MINUTES_CAP_ADMINS = os.getenv("VIDEO_MINUTES_CAP_ADMINS", "1").strip().lo
 # an `internal` location instead of streaming bytes through Python.
 FILES_ACCEL_REDIRECT = os.getenv("FILES_ACCEL_REDIRECT", "0").strip().lower() in {"1", "true", "yes"}
 FILES_ACCEL_PREFIX = os.getenv("FILES_ACCEL_PREFIX", "/_protected").rstrip("/")
+
+# ─── Storage + retention (services/storage.py) ─────────────────
+# Per-user quota over sources + clips on disk (non-admins). Uploads are
+# refused for everyone while the disk has less than MIN_FREE_DISK_GB free.
+STORAGE_QUOTA_MB = _int("STORAGE_QUOTA_MB", 1536)
+STORAGE_QUOTA_BYTES = STORAGE_QUOTA_MB * 1024 * 1024
+MIN_FREE_DISK_GB = _float("MIN_FREE_DISK_GB", 5.0)
+# Nightly cleanup. 0 disables a rule. Admin and demo accounts are exempt
+# (the owner's eval videos, the public demo's source).
+SOURCE_RETENTION_DAYS = _int("SOURCE_RETENTION_DAYS", 7)     # source deleted -> video "archived"
+CLIP_RETENTION_DAYS = _int("CLIP_RETENTION_DAYS", 30)        # rendered clips (files + rows)
+INACTIVE_ACCOUNT_DAYS = _int("INACTIVE_ACCOUNT_DAYS", 60)    # all files deleted, account kept
+CLEANUP_ENABLED = os.getenv("CLEANUP_ENABLED", "1").strip().lower() in {"1", "true", "yes"}
+CLEANUP_HOUR_UTC = _int("CLEANUP_HOUR_UTC", 3)               # runs once a day from this hour
+CLEANUP_CHECK_SECONDS = _int("CLEANUP_CHECK_SECONDS", 900)   # how often the loop wakes up

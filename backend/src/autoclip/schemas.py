@@ -17,6 +17,10 @@ class VideoOut(BaseModel):
     clips_count: int = 0
     source_url: Optional[str] = None  # ownership-checked /api/files/... URL
     media_kind: str = "video"         # "video" | "audio" (stored as an audiogram mp4)
+    # Storage rules (services/storage.py); null = no expiry / nothing to expire.
+    archived: bool = False            # source deleted: clips still play, no new clips
+    source_expires_at: Optional[str] = None
+    clips_expire_at: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

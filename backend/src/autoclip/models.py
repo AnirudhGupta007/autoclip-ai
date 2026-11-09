@@ -36,6 +36,9 @@ class User(Base):
     is_admin = Column(Boolean, nullable=False, default=False)
     is_demo = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=utcnow)
+    # Bumped at most hourly by auth/deps.optional_user; drives the
+    # inactive-account rule in services/storage.py.
+    last_active_at = Column(DateTime, nullable=True)
 
     videos = relationship("Video", back_populates="owner")
 
@@ -67,6 +70,9 @@ class Video(Base):
     # "video" | "audio" — audio uploads are stored as an audiogram mp4
     # (services/audiogram.py) and analysed from the transcript only.
     media_kind = Column(String, nullable=False, default="video", server_default="video")
+    # True once retention deleted the source file (services/storage.py):
+    # clips, moments and chats stay; new clips need a re-upload.
+    archived = Column(Boolean, nullable=False, default=False, server_default=false())
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     # Owner. Nullable only at the DB level (migration 0002 back-fills legacy
     # rows); every code path that creates a Video sets it.

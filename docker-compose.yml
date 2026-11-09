@@ -109,9 +109,18 @@ services:
       DEMO_ENABLED: ${DEMO_ENABLED:-1}
       DEMO_EMAIL: ${DEMO_EMAIL:-demo@autoclip.local}
       DEMO_DAILY_QUERY_LIMIT: ${DEMO_DAILY_QUERY_LIMIT:-10}
-      MAX_VIDEOS_PER_USER: ${MAX_VIDEOS_PER_USER:-5}
+      MAX_VIDEOS_PER_USER: ${MAX_VIDEOS_PER_USER:-3}
       MAX_VIDEO_MINUTES_DEMO: ${MAX_VIDEO_MINUTES_DEMO:-60}
       VIDEO_MINUTES_CAP_ADMINS: ${VIDEO_MINUTES_CAP_ADMINS:-1}
+
+      # ─── Storage + retention (services/storage.py) ───────
+      STORAGE_QUOTA_MB: ${STORAGE_QUOTA_MB:-1536}
+      MIN_FREE_DISK_GB: ${MIN_FREE_DISK_GB:-5}
+      SOURCE_RETENTION_DAYS: ${SOURCE_RETENTION_DAYS:-7}
+      CLIP_RETENTION_DAYS: ${CLIP_RETENTION_DAYS:-30}
+      INACTIVE_ACCOUNT_DAYS: ${INACTIVE_ACCOUNT_DAYS:-60}
+      CLEANUP_ENABLED: ${CLEANUP_ENABLED:-1}
+      CLEANUP_HOUR_UTC: ${CLEANUP_HOUR_UTC:-3}
       # nginx serves media from its internal /_protected/ location after the
       # backend's ownership check (routers/files.py)
       FILES_ACCEL_REDIRECT: "1"

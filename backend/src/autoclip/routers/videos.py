@@ -10,7 +10,9 @@ from autoclip.database import get_db
 from autoclip.models import User, Video, generate_id
 from autoclip.schemas import VideoOut
 from autoclip.config import UPLOAD_DIR, MAX_UPLOAD_SIZE, MAX_UPLOAD_SIZE_MB, OUTPUT_DIR
+from autoclip.services import storage
 from autoclip.services.audiogram import AUDIO_EXTS, make_audiogram, seed_profile
+from autoclip.services.conversations import iso
 from autoclip.utils.ffmpeg import get_video_info
 from starlette.concurrency import run_in_threadpool
 
@@ -19,21 +21,27 @@ VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 router = APIRouter(prefix="/api/videos", tags=["videos"], dependencies=[Depends(current_user)])
 
 
-def _video_out(v: Video, clips_count: int) -> VideoOut:
+def _video_out(v: Video, user: User, clips: list | None = None) -> VideoOut:
     from autoclip.utils.paths import public_url
+    clips = list(v.clips) if clips is None else clips
     return VideoOut(id=v.id, filename=v.filename, duration=v.duration, resolution=v.resolution,
-                    status=v.status, created_at=v.created_at, clips_count=clips_count,
-                    source_url=public_url(v.file_path), media_kind=v.media_kind or "video")
+                    status=v.status, created_at=v.created_at, clips_count=len(clips),
+                    source_url=None if v.archived else public_url(v.file_path),
+                    media_kind=v.media_kind or "video", archived=bool(v.archived),
+                    source_expires_at=iso(storage.source_expires_at(v, user)),
+                    clips_expire_at=iso(storage.clips_expire_at(clips, user)))
 
 
 @router.post("/upload", response_model=VideoOut)
 async def upload_video(file: UploadFile = File(...), db: Session = Depends(get_db),
                        user: User = Depends(require_not_demo)):
     """Upload a video or an audio file (non-admins: at most
-    MAX_VIDEOS_PER_USER stored items; everyone: at most MAX_VIDEO_MINUTES_DEMO
-    long unless VIDEO_MINUTES_CAP_ADMINS=0). Audio — and a video container
-    with no picture — is turned into an audiogram mp4 (services/audiogram.py)
-    and stored with media_kind="audio"."""
+    MAX_VIDEOS_PER_USER active items and STORAGE_QUOTA_MB in total;
+    everyone: at most MAX_VIDEO_MINUTES_DEMO long unless
+    VIDEO_MINUTES_CAP_ADMINS=0, and nothing while the disk is nearly full —
+    see services/storage.py). Audio — and a video container with no picture
+    — is turned into an audiogram mp4 (services/audiogram.py) and stored
+    with media_kind="audio"."""
     if not file.filename:
         raise HTTPException(400, "No filename provided")
 
@@ -41,11 +49,15 @@ async def upload_video(file: UploadFile = File(...), db: Session = Depends(get_d
     if ext not in VIDEO_EXTS | AUDIO_EXTS:
         raise HTTPException(400, f"Unsupported format: {ext}")
 
+    storage.check_disk_guard()
     if not user.is_admin:
-        owned = db.query(Video).filter(Video.user_id == user.id).count()
-        if owned >= auth_settings.MAX_VIDEOS_PER_USER:
-            raise HTTPException(409, (f"You can keep up to {auth_settings.MAX_VIDEOS_PER_USER} videos. "
+        if storage.active_upload_count(db, user.id) >= auth_settings.MAX_VIDEOS_PER_USER:
+            raise HTTPException(409, (f"You can keep up to {auth_settings.MAX_VIDEOS_PER_USER} active uploads. "
                                       "Delete one in your Library to upload another."))
+    quota = storage.quota_for(user)
+    used = await run_in_threadpool(storage.user_bytes, db, user.id) if quota is not None else 0
+    if quota is not None and used >= quota:
+        raise storage.quota_exceeded(quota)
 
     video_id = generate_id()
     video_dir = UPLOAD_DIR / video_id
@@ -61,6 +73,10 @@ async def upload_video(file: UploadFile = File(...), db: Session = Depends(get_d
                 f.close()
                 shutil.rmtree(video_dir)
                 raise HTTPException(413, f"File too large (max {MAX_UPLOAD_SIZE_MB:g}MB)")
+            if quota is not None and used + size > quota:
+                f.close()
+                shutil.rmtree(video_dir)
+                raise storage.quota_exceeded(quota)
             f.write(chunk)
 
     # Get video metadata
@@ -97,6 +113,10 @@ async def upload_video(file: UploadFile = File(...), db: Session = Depends(get_d
             raise HTTPException(422, "Couldn't convert this audio file.")
         file_path = audiogram
         info["resolution"] = get_video_info(str(audiogram)).get("resolution")
+        if quota is not None and used + storage.video_bytes(video_id) > quota:  # audiogram added bytes
+            shutil.rmtree(video_dir, ignore_errors=True)
+            shutil.rmtree(OUTPUT_DIR / video_id, ignore_errors=True)
+            raise storage.quota_exceeded(quota)
 
     video = Video(
         id=video_id,
@@ -112,7 +132,7 @@ async def upload_video(file: UploadFile = File(...), db: Session = Depends(get_d
     db.commit()
     db.refresh(video)
 
-    return _video_out(video, 0)
+    return _video_out(video, user, [])
 
 
 @router.get("", response_model=list[VideoOut])
@@ -123,7 +143,7 @@ def list_videos(db: Session = Depends(get_db), user: User = Depends(current_user
               .order_by(Video.created_at.desc()).all())
     out = []
     for v in videos:
-        item = _video_out(v, len(v.clips))
+        item = _video_out(v, user)
         item.status = analysis_jobs.video_state(v.id).get("status", v.status)
         out.append(item)
     return out
@@ -133,7 +153,7 @@ def list_videos(db: Session = Depends(get_db), user: User = Depends(current_user
 def get_video(video_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)):
     """Get video details."""
     video = get_owned_video(db, user, video_id)
-    return _video_out(video, len(video.clips))
+    return _video_out(video, user)
 
 
 @router.delete("/{video_id}")

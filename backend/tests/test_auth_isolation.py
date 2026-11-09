@@ -37,6 +37,7 @@ os.environ.update({
     "ALLOWED_ORIGINS": "http://localhost:5173",
     "MAX_VIDEOS_PER_USER": "2",
     "MAX_VIDEO_MINUTES_DEMO": "60",
+    "MIN_FREE_DISK_GB": "0",        # tests/test_storage.py turns the disk guard on itself
 })
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 

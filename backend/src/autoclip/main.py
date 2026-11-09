@@ -1,4 +1,8 @@
 """FastAPI application entry point."""
+import asyncio
+import contextlib
+from contextlib import asynccontextmanager
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from autoclip.database import init_db
@@ -6,15 +10,36 @@ from autoclip.auth import settings as auth_settings
 from autoclip.auth.deps import require_admin
 from autoclip.auth.origin import OriginCheckMiddleware
 from autoclip.routers import videos, clips, music, files
+from autoclip.routers.account import router as account_router
 from autoclip.routers.auth import router as auth_router
 from autoclip.routers.chat import router as chat_router
 from autoclip.routers.conversations import router as conversations_router
 from autoclip.routers.search import router as search_router
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    init_db()
+    cleanup = None
+    if auth_settings.CLEANUP_ENABLED:
+        # Nightly storage cleanup (services/storage.py); a Redis key makes it
+        # run once a day however many workers start this loop.
+        from autoclip.services.storage import cleanup_loop
+        cleanup = asyncio.create_task(cleanup_loop(), name="storage-cleanup")
+    try:
+        yield
+    finally:
+        if cleanup is not None:
+            cleanup.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await cleanup
+
+
 app = FastAPI(
     title="AutoClip AI",
     description="Conversational AI-powered video clipping with multimodal analysis",
     version="2.0.0",
+    lifespan=lifespan,
 )
 
 # Explicit allow-list — never "*" with credentials (cookies).
@@ -33,6 +58,7 @@ app.include_router(auth_router)
 # Chat interface (primary)
 app.include_router(chat_router)
 app.include_router(conversations_router)
+app.include_router(account_router)
 
 # REST endpoints — all require a session and are scoped to the caller's data
 app.include_router(videos.router)
@@ -41,11 +67,6 @@ app.include_router(music.router)
 app.include_router(search_router)
 # Media: ownership-checked replacement for the old public /uploads, /outputs mounts
 app.include_router(files.router)
-
-
-@app.on_event("startup")
-def startup():
-    init_db()
 
 
 @app.get("/api/health")
