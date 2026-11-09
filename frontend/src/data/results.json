@@ -1,5 +1,5 @@
 {
-  "updated": "2026-10-01",
+  "updated": "2026-11-10",
   "method_url": "https://github.com/AnirudhGupta007/autoclip-ai/blob/master/EVALUATION.md",
   "subject": {
     "label": "a 98-minute feature film",
@@ -26,5 +26,26 @@
     "cost_usd_per_video": 1.449,
     "wall_s_per_video": 1290.7
   },
-  "current": null
+  "current": {
+    "label": "Now",
+    "measured": "2026-10-09",
+    "git": "852920d + selection fix (a26730c)",
+    "n_queries": 6,
+    "n_clips": 9,
+    "hit_at_3": 0.3333,
+    "hit_at_1": 0.1667,
+    "mrr": 0.2222,
+    "category_match": 0.3333,
+    "clip_precision": 0.3333,
+    "transcript_coverage": 0.9574,
+    "moment_recall": 0.8286,
+    "captions_present": 1.0,
+    "length_adherence": 1.0,
+    "aspect_adherence": 1.0,
+    "cost_usd_per_video": 0.587,
+    "wall_s_per_video": 1184.0,
+    "ragas_faithfulness": 0.69,
+    "ragas_context_precision": 0.47,
+    "note": "Orchestrator + re-ranker: google/gemini-2.5-flash. Quality numbers from the selection-fix run (2026-10-09); cost/wall per video from the full-analysis run of the same pipeline before the selection fix (2026-10-07: $0.587, 1184s) - the selection-fix run reused that analysis ($0.034 for the 6 queries). RAGAS scored offline on the same clips with a free judge (nvidia/nemotron-3.5-super-vl:free), 2026-11-10."
+  }
 }

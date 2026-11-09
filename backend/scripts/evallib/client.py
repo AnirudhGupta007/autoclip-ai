@@ -348,3 +348,24 @@ def transcript_from_container(video_id: str, container: str = "autoclip-ai-backe
         return json.loads(r.stdout)
     except json.JSONDecodeError:
         return None
+
+
+def window_texts_from_container(video_id: str, windows: list[tuple[float, float]],
+                                container: str = "autoclip-ai-backend-1") -> Optional[list[str]]:
+    """Dialogue inside each (start, end) window, from the container's
+    transcript.json — for the RAGAS step when a clip row no longer exists.
+    IN MEMORY ONLY: callers must never write this text to a report."""
+    code = ("import json,sys;d=json.load(open(sys.argv[1]));ws=json.loads(sys.argv[2]);W=d.get('words',[]);"
+            "print(json.dumps([' '.join(w['text'] for w in W if w['end']>a and w['start']<b) for a,b in ws]))")
+    try:
+        r = subprocess.run(["docker", "exec", container, "python3", "-c", code,
+                            f"/app/outputs/{video_id}/transcript.json", json.dumps(windows)],
+                           capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    try:
+        return json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return None

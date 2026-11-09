@@ -1,17 +1,19 @@
-"""Movie-level evaluation of AutoClip against human ground truth.
+"""Video-level evaluation of AutoClip (films, talks, podcasts) against human ground truth.
 
 Sends each ground-truth query to the running app as a chat message (or
 re-scores a previous run offline), then measures what came back against a
-human-labelled moment map of the film:
+human-labelled moment map of the video (backend/eval/movies/, backend/eval/podcasts/):
 
   * query quality   — hit@1 / hit@3 / MRR vs the human's ranked top-3,
                       tag precision (is a "funny" clip actually funny?)
-  * analysis        — moment recall/precision@k, recall per tenth of the film,
+  * analysis        — moment recall/precision@k, recall per tenth of the video,
                       within-chunk position histogram, transcript coverage,
-                      how far into the film analysis reached, credits leaks
+                      how far into the video analysis reached, credits leaks
   * delivery        — length / aspect adherence, duplicates, captions,
                       letterbox bars (ffprobe/ffmpeg, via docker exec if needed)
   * cost & time     — OpenRouter credits delta, wall time per query
+  * --ragas         — optional RAGAS faithfulness + context precision with a
+                      cheap judge model (evallib/ragas_eval.py; dev extra)
 
 Examples (from the repo root):
 
@@ -45,6 +47,7 @@ from evallib import probe as P  # noqa: E402
 from evallib import report as R  # noqa: E402
 from evallib import score as S  # noqa: E402
 from evallib.runs import load_gt, load_results_dir  # noqa: E402
+from evallib import ragas_eval as RG  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -274,10 +277,49 @@ def build_report(gt: dict, run: dict, probes: dict, args, mode: str) -> dict:
     }
 
 
+def ragas_step(args, gt: dict, run: dict) -> dict:
+    """RAGAS on the first run's queries, within the budget left after them."""
+    spent = float((run.get("cost") or {}).get("total_usd") or 0.0)
+    budget = max(0.0, args.budget_usd - spent)
+    try:
+        api = C.AutoClip(args.base, log=log, email=args.email, password=args.password)
+        clips = {c["id"]: c for c in api.clips(run["video_id"])}
+    except (SystemExit, OSError, KeyError) as e:
+        return {"skipped": f"could not fetch clip transcripts: {e}"}
+    gone = [c for c in (run.get("clips") or {}).values() if c["id"] not in clips]
+    if gone and not args.offline:  # clips deleted since (e.g. --fresh): rebuild their dialogue
+        texts = C.window_texts_from_container(run["video_id"], [(c["start"], c["end"]) for c in gone])
+        for c, text in zip(gone, texts or []):
+            clips[c["id"]] = {"id": c["id"], "title": c.get("title"), "transcript": text}
+    truth = {q["id"]: q.get("truth") or [] for q in gt["queries"]}
+    per_query = [{**q, "truth": truth.get(q.get("query_id"), [])} for q in (run["runs"][0]["queries"]
+                                                                          if run.get("runs") else [])]
+    key = C.read_env_key(REPO / ".env") or os.environ.get("OPENROUTER_API_KEY")
+    credits = C.Credits(key)
+    res = RG.run(per_query, clips, {m["id"]: m for m in gt["moments"]}, api_key=key,
+                 base_url=os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+                 budget_usd=budget, model=args.ragas_model, usage=credits.usage, log=log)
+    if res.get("cost_usd") is not None and isinstance(run.get("cost"), dict):
+        run["cost"]["ragas_usd"] = res["cost_usd"]
+    return res
+
+
+def render_ragas_md(r: dict) -> str:
+    if r.get("skipped"):
+        return f"## RAGAS\n\nSkipped: {r['skipped']}\n"
+    f = lambda v: "–" if v is None else f"{v:.2f}"  # noqa: E731
+    rows = "\n".join(f"| {qid} | {f(v.get('faithfulness'))} | {f(v.get('context_precision'))} |"
+                     for qid, v in r["per_query"].items())
+    cost = "unknown" if r.get("cost_usd") is None else f"${r['cost_usd']:.4f}"
+    return (f"## RAGAS (judge: {r['judge_model']})\n\n| query | faithfulness | context precision |\n"
+            f"|---|---|---|\n{rows}\n\nRAGAS faithfulness {f(r['faithfulness'])} · "
+            f"context precision {f(r['context_precision'])} · cost {cost}\n")
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
-    ap.add_argument("--gt", required=True, type=Path, help="ground-truth JSON (backend/eval/movies/<slug>.json)")
+    ap.add_argument("--gt", required=True, type=Path, help="ground-truth JSON (backend/eval/{movies,podcasts}/<slug>.json)")
     ap.add_argument("--base", default="http://127.0.0.1:8000", help="backend base URL")
     ap.add_argument("--email", default=os.environ.get("EVAL_EMAIL"),
                     help="account to log in as (default: $EVAL_EMAIL); use an ADMIN_EMAILS account to skip quotas")
@@ -309,6 +351,10 @@ def main(argv=None) -> int:
     ap.add_argument("--offline", action="store_true",
                     help="never touch docker/postgres/the API (from-results only)")
     ap.add_argument("--source-label", help="override the run's recorded source (e.g. to hide a local path)")
+    ap.add_argument("--ragas", action="store_true",
+                    help="also score faithfulness + context precision with RAGAS (needs `ragas`; uses the "
+                         "budget left after the queries; needs the API for clip transcripts)")
+    ap.add_argument("--ragas-model", default=RG.JUDGE_MODEL, help="OpenRouter judge model for --ragas")
     ap.add_argument("--dry-run", action="store_true", help="print the messages that would be sent and exit")
     args = ap.parse_args(argv)
 
@@ -350,16 +396,24 @@ def main(argv=None) -> int:
         rep["diff"] = {"baseline_path": str(args.baseline), "baseline_generated": base["meta"]["generated_utc"],
                        "threshold": args.fail_on_regression, "rows": rows, "regressed": regressed}
 
+    if args.ragas:
+        rep["ragas"] = ragas_step(args, gt, run)
+
     out = args.out_dir or (args.out / gt["slug"] / dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ"))
     out.mkdir(parents=True, exist_ok=True)
     (out / "report.json").write_text(json.dumps(rep, indent=1, ensure_ascii=False, default=str))
-    (out / "report.md").write_text(R.render_md(rep))
+    md = R.render_md(rep)
+    if rep.get("ragas"):
+        md += "\n" + render_ragas_md(rep["ragas"])
+    (out / "report.md").write_text(md)
     (out / "clips.csv").write_text(R.render_csv(rep))
 
     h = rep["headline"]
     print(f"\n{gt['title']} — {out}/report.md")
     for key, label, _, kind in S.HEADLINE:
         print(f"  {label:<46} {R.fmt(h.get(key), kind):>8}  {R.bar(h.get(key)) if kind == 'rate' else ''}")
+    if rep.get("ragas"):
+        print("  " + render_ragas_md(rep["ragas"]).strip().splitlines()[-1])
     if args.baseline:
         print(f"\n  {'REGRESSION vs baseline' if regressed else 'no regression vs baseline'}")
     if exit_code:

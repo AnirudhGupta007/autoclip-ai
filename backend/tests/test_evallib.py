@@ -259,3 +259,63 @@ def test_score_run_end_to_end():
                       "gt_moments": {m["id"]: m for m in gt["moments"]}})
     assert "## Scoreboard" in md and "Per clip" in md
     json.dumps(sc)  # report must be serialisable
+
+
+# ─── RAGAS step (no network: sample building, budget guard) ─────
+
+def _ragas_inputs():
+    from evallib import ragas_eval as RG
+    per_query = [
+        {"query_id": "q1", "message": "funniest moment", "agent_text": "Here is a funny clip.",
+         "returned_ids": ["c1", "c2"], "truth": ["m1"]},
+        {"query_id": "q2", "message": "a story", "agent_text": "", "returned_ids": ["c3"], "truth": []},
+        {"query_id": "q3", "message": "nothing came back", "returned_ids": []},
+    ]
+    clips = {"c1": {"title": "Pricing joke", "transcript": "so the  price\nwas  wrong"},
+             "c2": {"title": "Second", "transcript": ""},
+             "c3": {"title": "Tale", "transcript": "once upon a time"}}
+    moments = {"m1": {"note": "the pricing joke lands"}}
+    return RG, per_query, clips, moments
+
+
+def test_ragas_build_samples():
+    RG, per_query, clips, moments = _ragas_inputs()
+    faith, ctxp = RG.build_samples(per_query, clips, moments)
+    assert [s["query_id"] for s in faith] == ["q1", "q2"]   # per titled clip; c2 has no text, q3 nothing
+    assert faith[0]["retrieved_contexts"] == ["so the price was wrong"]
+    assert faith[0]["response"] == "Pricing joke" and faith[1]["response"] == "Tale"
+    assert RG._merge(faith, [1.0, 0.5], [], []) == {"q1": {"faithfulness": 1.0}, "q2": {"faithfulness": 0.5}}
+    assert [s["query_id"] for s in ctxp] == ["q1"]                 # q2 has no truth -> no reference
+    assert "the pricing joke lands" in ctxp[0]["reference"]
+
+
+def test_ragas_budget_guard_and_missing_dependency(monkeypatch):
+    RG, per_query, clips, moments = _ragas_inputs()
+    faith, ctxp = RG.build_samples(per_query, clips, moments)
+    est = RG.estimate_usd(faith, ctxp)
+    assert 0 < est < 0.01   # a few calls on flash-lite
+    r = RG.run(per_query, clips, moments, api_key="k", base_url="x", budget_usd=est / 2)
+    assert r["skipped"].startswith("estimated")
+    assert RG.run([], {}, {}, api_key="k", base_url="x", budget_usd=1)["skipped"]
+    import builtins
+    real = builtins.__import__
+
+    def no_ragas(name, *a, **k):
+        if name.startswith("ragas"):
+            raise ImportError("No module named 'ragas'")
+        return real(name, *a, **k)
+    monkeypatch.setattr(builtins, "__import__", no_ragas)
+    r = RG.run(per_query, clips, moments, api_key="k", base_url="x", budget_usd=1)
+    assert "ragas not installed" in r["skipped"]
+
+
+def test_podcast_ground_truth_is_consistent():
+    gt = load_gt(Path(__file__).resolve().parents[1] / "eval" / "podcasts" / "blocks_russell_peters.json")
+    ids = {m["id"] for m in gt["moments"]}
+    assert 25 <= len(ids) <= 40 and len(gt["queries"]) == 6
+    for q in gt["queries"]:
+        assert set(q["truth"]) <= ids
+        for t in q["truth"]:   # every truth moment carries the asked tag
+            assert set(q["tags"]) & set(next(m for m in gt["moments"] if m["id"] == t)["tags"])
+    assert all(0 <= m["start"] < m["end"] <= gt["duration"] for m in gt["moments"])
+    json.dumps(gt)

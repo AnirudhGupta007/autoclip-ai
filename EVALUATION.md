@@ -283,6 +283,99 @@ move are hit@3, tag precision and transcript coverage.
 
 ---
 
+## 5. Podcasts — ground truth, the eval matrix and RAGAS
+
+### Ground truth
+
+`backend/eval/podcasts/blocks_russell_peters.json`: *Russell Peters | Blocks
+Podcast w/ Neal Brennan* (58.3 min, two people at a desk), CC BY on YouTube
+(`yt-dlp --print license` → "Creative Commons Attribution license (reuse
+allowed)"). It was downloaded with `yt-dlp` from a local venv, for testing
+only. `yt-dlp` is not a backend dependency. There are two local files: the
+480p video and its audio track as `.m4a`, which is the same track and so a
+like-for-like comparison.
+
+- **40 moments**, in the same schema as the movie files. The tags use the tagger's
+  category names (`hot_take` and `advice` are the podcast ones). `money` is a
+  topic tag. The moments were labelled in one pass over the whole YouTube
+  auto-caption transcript. Timings come from the caption cues and are
+  accurate to about ±5 s.
+- **6 queries:** funny ×3 at 9:16, a story at 16:9, the spiciest hot take
+  at 1:1, real-life advice, the best quote, and money with the old accountant.
+  "Funniest" and "spiciest" are one labeller's ranking. Tag precision is the
+  less subjective number.
+
+`eval_movie.py` reads this format unchanged. Only its wording was
+generalised from "film" to "video".
+
+### Eval matrix (not run yet)
+
+Each arm is one fresh analysis of the same episode plus the 6 queries. That
+is 3 full analyses, estimated well under the $4 cap from the film's $0.59 for
+98 min. Run them against the local stack:
+
+```bash
+set -a; source .env; set +a
+E="python3 backend/scripts/eval_movie.py --gt backend/eval/podcasts/blocks_russell_peters.json --base http://localhost --budget-usd 1.3 --ragas"
+# 1. video, full vision: 24 frames per chunk
+VISION_STATIC_CHECK=0 docker compose up -d backend && $E --upload ~/Videos/autoclip-bench/blocks_russell_peters.mp4
+# 2. video, static-frames: the default; static chunks send 4 frames
+docker compose up -d backend && $E --upload ~/Videos/autoclip-bench/blocks_russell_peters.mp4
+# 3. audio only: an audiogram, transcript-only chunks
+$E --upload ~/Videos/autoclip-bench/blocks_russell_peters_audio.m4a
+```
+
+Exit bar: audio-only cost at least 60% lower than full vision, with hit@3 no
+worse.
+
+**Status (2026-11-10): not run.** The shared OpenRouter balance was $8.89,
+below the $10 floor set for paid runs, so no analysis was started. The only
+podcast numbers measured so far are the ones that cost nothing (see
+BENCHMARKS.md): audiogram encode time, how often the static-shot check fires,
+and the upload path.
+
+### RAGAS (`--ragas`, dev-only)
+
+The ID-based metrics above stay primary. `--ragas` adds two judge metrics
+that those metrics cannot see. They are in `backend/scripts/evallib/ragas_eval.py`,
+and `ragas` is installed only via the `eval` extra (`pip install -e 'backend[eval]'`),
+never in the image.
+
+- **Faithfulness**, per clip: does the clip's title claim anything that is
+  not in the clip's own transcript? This catches hallucinated titles. It is
+  averaged per query. The agent's chat reply is *not* judged, because it
+  states lengths, scores and aspect ratios that no transcript contains. A
+  first version that judged it scored 0.00 across the board.
+- **Context precision**, per query: are the returned clips, in rank order,
+  relevant to the request? The judge uses the human notes for the query's
+  truth moments as the reference.
+
+The judge is a cheap OpenRouter model (default `google/gemini-2.5-flash-lite`)
+through ragas' LangChain wrapper. The step estimates its cost first and
+skips itself when that exceeds the `--budget-usd` left after the queries.
+Transcript text is held in memory only, and the report stores scores only.
+If a run's clips no longer exist (for example after `--fresh`), their dialogue
+is rebuilt from the container's `transcript.json` for the clip windows.
+
+Measured 2026-11-10, re-scoring the existing selection-fix runs offline
+(`--from-results … --ragas --ragas-model nvidia/nemotron-3.5-super-vl:free`,
+$0.00):
+
+| Run (6 queries) | hit@3 | Tag precision | RAGAS faithfulness | RAGAS context precision |
+|---|---:|---:|---:|---:|
+| Doctorow talk, Gemini 2.5 Flash | 0.33 | 0.62 | 0.81 | 0.50 |
+| Wild Target, Gemini 2.5 Flash | 0.33 | 0.33 | 0.69 | 0.47 |
+
+Caveats: the judge is a free model, and one run is noisy. The free Gemma
+judges returned 429s from the shared upstream pool. Context precision ≥ 0.5
+agrees with hit@3 on only 8 of 12 queries. It is a looser signal: it scored
+1.0 on three queries whose clips missed the human top-3, and 0.0 on one
+query that hit. Faithfulness judges short titles, so a single loose word
+moves a clip's score a lot. Read the per-query tables in each `report.md`
+before trusting the means.
+
+---
+
 ## Known measurement caveats
 
 Be honest about these when reading any of the numbers above:
@@ -297,10 +390,11 @@ Be honest about these when reading any of the numbers above:
 3. **Cost readings lag.** The OpenRouter credits endpoint updates with a short
    delay, so a single request's measured cost can land on the next row. Totals
    across a full matrix run are reliable; individual rows are indicative.
-4. **Vision sees only part of each chunk.** At most 24 frames are sent per
-   120s chunk at 2.5s spacing, so roughly the second half of every chunk has
-   no visual input — moments there are found from the transcript alone. Keep
-   that in mind before blaming the vision model for misses.
+4. **Vision sees a sample of each chunk.** 24 frames are spread evenly across
+   each 120 s chunk (one every 5 s). Since the podcast pivot, a chunk whose
+   frames show at most 4 distinct looks (a static podcast camera) sends only 4
+   frames, and audio uploads send none. On those, moments come from the
+   transcript almost entirely.
 5. **One run is not a benchmark.** Model sampling varies between runs. Run the
    matrix three times before concluding a change helped.
 6. **The overlap rule is lenient on short moments.** A match needs only 50% of

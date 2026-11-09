@@ -1,0 +1,570 @@
+{
+ "slug": "blocks_russell_peters",
+ "title": "Russell Peters | Blocks Podcast w/ Neal Brennan",
+ "license_note": "CC BY (YouTube 'Creative Commons Attribution license (reuse allowed)') - clips may be published with attribution",
+ "license": "CC BY (YouTube CC BY 3.0)",
+ "license_url": "https://creativecommons.org/licenses/by/3.0/legalcode",
+ "source_url": "https://www.youtube.com/watch?v=cxyowd71_Qw",
+ "attribution": "\"Russell Peters | Blocks Podcast w/ Neal Brennan\", Neal Brennan (YouTube, Dec 2025), licensed CC BY (https://www.youtube.com/watch?v=cxyowd71_Qw). Clips trimmed/reframed.",
+ "source_hint": "yt-dlp (local venv, testing only) of cxyowd71_Qw: 854x480 AV1 + AAC, 3500.01s -> /home/anirudh/Videos/autoclip-bench/blocks_russell_peters.mp4; audio-only copy blocks_russell_peters_audio.m4a (same track); not distributed with this repo",
+ "duration": 3500.01,
+ "film_end": 3500,
+ "chunking": {
+  "chunk_s": 120,
+  "overlap_s": 10
+ },
+ "labeling": {
+  "method": "one human pass over the full YouTube auto-caption transcript (cues collapsed to ~10s lines); two speakers (Neal Brennan host, Russell Peters guest) seated at a desk; no end credits (outro ~57:40); timing from caption cues, ~+-5s",
+  "grade": "3 = appears in a query's ranked truth and is a strong standalone clip; 2 = solid standalone clip; 1 = needs context",
+  "tags": "category names match services/moment_tagger.CATEGORIES (hot_take/advice are the podcast ones); 'money' is a topic tag so the topic query is answerable",
+  "length/frame null": "not specified in the prompt; excluded from that adherence metric",
+  "subjectivity": "'funniest'/'spiciest' truth lists are one labeller's ranking; tag precision (any clip landing on a moment with the asked tag) is the less subjective metric"
+ },
+ "moments": [
+  {
+   "id": "m01",
+   "start": 0,
+   "end": 92,
+   "tags": [
+    "funny",
+    "story"
+   ],
+   "grade": 2,
+   "note": "How they met in 1997: hanging out in Dave's hotel room, the dog barking, Esther Rolle (Mrs. Evans from Good Times) knocks: 'will you keep it down'"
+  },
+  {
+   "id": "m02",
+   "start": 110,
+   "end": 150,
+   "tags": [
+    "funny",
+    "story"
+   ],
+   "grade": 2,
+   "note": "'I've only been married twice' ... 'how's that going?' 'We're getting divorced now'"
+  },
+  {
+   "id": "m03",
+   "start": 189,
+   "end": 250,
+   "tags": [
+    "emotional",
+    "quotable",
+    "story"
+   ],
+   "grade": 2,
+   "note": "Divorce isn't his fault 'for the first time in my life'; 'eight billion people you can mess with - don't mess with these two' (his kids)"
+  },
+  {
+   "id": "m04",
+   "start": 287,
+   "end": 325,
+   "tags": [
+    "insightful",
+    "quotable"
+   ],
+   "grade": 1,
+   "note": "Warned her early; 'wrong and strong' is never the answer"
+  },
+  {
+   "id": "m05",
+   "start": 336,
+   "end": 352,
+   "tags": [
+    "funny"
+   ],
+   "grade": 2,
+   "note": "'55. She's 53' - Neal: 'talk about an unforced error at 53'"
+  },
+  {
+   "id": "m06",
+   "start": 428,
+   "end": 470,
+   "tags": [
+    "quotable",
+    "hot_take"
+   ],
+   "grade": 2,
+   "note": "Quote he saw: women sleep with who they want, men with who they can; marry the other way round; 'you're the prize'"
+  },
+  {
+   "id": "m08",
+   "start": 501,
+   "end": 540,
+   "tags": [
+    "funny",
+    "quotable"
+   ],
+   "grade": 2,
+   "note": "Neal: women don't like me for money, I'm a pain; 'if you trust any compliment a woman gives about your d***, you're a fool'"
+  },
+  {
+   "id": "m09",
+   "start": 621,
+   "end": 662,
+   "tags": [
+    "story",
+    "emotional",
+    "money"
+   ],
+   "grade": 2,
+   "note": "Rock bottom: pandemic accountant made him sell the Hidden Hills house for 7.8M - worth 15 now"
+  },
+  {
+   "id": "m10",
+   "start": 660,
+   "end": 700,
+   "tags": [
+    "funny",
+    "money"
+   ],
+   "grade": 2,
+   "note": "Spending a fortune a month, 'I'm going to bleep these numbers'; health insurance for his friends - 'Canadians don't need it'"
+  },
+  {
+   "id": "m11",
+   "start": 764,
+   "end": 800,
+   "tags": [
+    "funny",
+    "money"
+   ],
+   "grade": 2,
+   "note": "'Financially illiterate'; Neal mentioned an index fund and Russell had never heard of it"
+  },
+  {
+   "id": "m12",
+   "start": 804,
+   "end": 850,
+   "tags": [
+    "funny",
+    "story",
+    "money"
+   ],
+   "grade": 2,
+   "note": "Accountant filed his taxes two years and never paid them: 'how do you whoopsy-daisy it two years in a row?'"
+  },
+  {
+   "id": "m13",
+   "start": 879,
+   "end": 925,
+   "tags": [
+    "story",
+    "funny",
+    "money"
+   ],
+   "grade": 2,
+   "note": "Used to buy a 100-grand watch on sight, now 'five grand? are you crazy'; sold the Rolls, the Lambo, the watches"
+  },
+  {
+   "id": "m14",
+   "start": 968,
+   "end": 990,
+   "tags": [
+    "funny",
+    "money"
+   ],
+   "grade": 1,
+   "note": "'He left me in an 8 million dollar hole' - 'Well, well, well'"
+  },
+  {
+   "id": "m15",
+   "start": 1033,
+   "end": 1075,
+   "tags": [
+    "hot_take",
+    "funny"
+   ],
+   "grade": 1,
+   "note": "Neal's issue with Malibu: too cold, 'it's not a real beach' - Hawaii is"
+  },
+  {
+   "id": "m16",
+   "start": 1126,
+   "end": 1170,
+   "tags": [
+    "story",
+    "funny"
+   ],
+   "grade": 2,
+   "note": "Tour name 'Relax': a guy at Costco told his upset wife 'relax, it's not that serious'"
+  },
+  {
+   "id": "m17",
+   "start": 1180,
+   "end": 1245,
+   "tags": [
+    "story",
+    "funny",
+    "money"
+   ],
+   "grade": 2,
+   "note": "Biggest waste of money: private jets - 'a great way to burn 30 grand' to be home eight hours early"
+  },
+  {
+   "id": "m18",
+   "start": 1262,
+   "end": 1300,
+   "tags": [
+    "advice",
+    "quotable",
+    "money"
+   ],
+   "grade": 2,
+   "note": "Billionaire friends don't own planes: 'if they think it's a waste of money, it's definitely a waste of money'"
+  },
+  {
+   "id": "m20",
+   "start": 1345,
+   "end": 1420,
+   "tags": [
+    "hot_take",
+    "heated"
+   ],
+   "grade": 2,
+   "note": "Hollywood is fickle - in favour, out of favour; people used him to expand internationally then dropped him"
+  },
+  {
+   "id": "m21",
+   "start": 1411,
+   "end": 1465,
+   "tags": [
+    "insightful",
+    "quotable"
+   ],
+   "grade": 3,
+   "note": "His fan base is so loyal 'I'm a fool to chase anything else'; arenas from 2007 to 2025; 'I want what I have'"
+  },
+  {
+   "id": "m22",
+   "start": 1468,
+   "end": 1515,
+   "tags": [
+    "heated",
+    "funny"
+   ],
+   "grade": 2,
+   "note": "'This business is full of phonies' - tells them to their face: 'what are you going to do, fight me? I'll knock you out'"
+  },
+  {
+   "id": "m23",
+   "start": 1515,
+   "end": 1567,
+   "tags": [
+    "heated",
+    "funny",
+    "hot_take"
+   ],
+   "grade": 2,
+   "note": "Retells Gillie's Roc Nation brunch rant: 'nothing but Jay-Z putting a bunch of people on the lawn'"
+  },
+  {
+   "id": "m24",
+   "start": 1706,
+   "end": 1775,
+   "tags": [
+    "heated",
+    "story",
+    "emotional"
+   ],
+   "grade": 2,
+   "note": "Comics he took on the road and paid well never reach back; won't send his niece a 5-second video; 'you follow me and mute me'"
+  },
+  {
+   "id": "m25",
+   "start": 1782,
+   "end": 1830,
+   "tags": [
+    "quotable",
+    "hot_take"
+   ],
+   "grade": 2,
+   "note": "'I'm not bitter, I'm awakened'; 'the last thing this industry wants is somebody that's real'"
+  },
+  {
+   "id": "m26",
+   "start": 1820,
+   "end": 1860,
+   "tags": [
+    "hot_take",
+    "insightful"
+   ],
+   "grade": 2,
+   "note": "Neal: the fake industry is ending - TV shows will end, it's all going to be podcasts and YouTube"
+  },
+  {
+   "id": "m27",
+   "start": 1875,
+   "end": 1915,
+   "tags": [
+    "funny",
+    "story"
+   ],
+   "grade": 2,
+   "note": "The first YouTube comic: the 'Indians can't live without a bargain, Chinese can't give you a bargain' bit went viral"
+  },
+  {
+   "id": "m28",
+   "start": 2020,
+   "end": 2070,
+   "tags": [
+    "insightful",
+    "advice",
+    "money"
+   ],
+   "grade": 2,
+   "note": "Meeting billionaires changed him: they gave him real game, and 'billionaires don't really flex'"
+  },
+  {
+   "id": "m29",
+   "start": 2072,
+   "end": 2112,
+   "tags": [
+    "funny"
+   ],
+   "grade": 2,
+   "note": "Never flossed on Instagram - 'you're trying to get robbed'; 'I got killers at the house'"
+  },
+  {
+   "id": "m30",
+   "start": 2112,
+   "end": 2180,
+   "tags": [
+    "funny",
+    "story"
+   ],
+   "grade": 2,
+   "note": "Ex-con friends who did 30 years chilling in his jacuzzi - 'a summer camp for ex-cons'"
+  },
+  {
+   "id": "m31",
+   "start": 2185,
+   "end": 2270,
+   "tags": [
+    "emotional",
+    "story"
+   ],
+   "grade": 3,
+   "note": "Inferiority complex since age 3-4: racism in 70s/80s Toronto, a grown man sprayed him with a hose; hung around the Black kids"
+  },
+  {
+   "id": "m32",
+   "start": 2235,
+   "end": 2280,
+   "tags": [
+    "insightful",
+    "quotable"
+   ],
+   "grade": 2,
+   "note": "Everyone has a default setting - anger, misery, sadness; 'mine has always been happiness'"
+  },
+  {
+   "id": "m33",
+   "start": 2320,
+   "end": 2350,
+   "tags": [
+    "insightful",
+    "emotional"
+   ],
+   "grade": 2,
+   "note": "'I'm waiting for somebody else to validate me... why can't I just validate myself?'"
+  },
+  {
+   "id": "m34",
+   "start": 2413,
+   "end": 2470,
+   "tags": [
+    "funny",
+    "story"
+   ],
+   "grade": 2,
+   "note": "Private gig for the 7th richest man: 'I knew I was inferior - that's not a complex, that's a reality'; demanded Emirates first class via Dubai"
+  },
+  {
+   "id": "m35",
+   "start": 2537,
+   "end": 2580,
+   "tags": [
+    "advice",
+    "quotable",
+    "insightful"
+   ],
+   "grade": 3,
+   "note": "Boxing lesson: don't say 'ow' - 'if nobody knows what bothers you, they can't bother you'"
+  },
+  {
+   "id": "m36",
+   "start": 2582,
+   "end": 2605,
+   "tags": [
+    "quotable",
+    "advice"
+   ],
+   "grade": 2,
+   "note": "'Never let your ego dictate your moves'"
+  },
+  {
+   "id": "m37",
+   "start": 2605,
+   "end": 2670,
+   "tags": [
+    "funny",
+    "insightful"
+   ],
+   "grade": 2,
+   "note": "Neal: 'you had a lifetime supply of heroin' (arenas) and still chased late-night TV; 'what's a late night talk show?'"
+  },
+  {
+   "id": "m38",
+   "start": 2960,
+   "end": 2995,
+   "tags": [
+    "funny",
+    "story"
+   ],
+   "grade": 3,
+   "note": "Daughter: 'I'm never gonna have daddy issues... I might have mommy issues'"
+  },
+  {
+   "id": "m39",
+   "start": 3040,
+   "end": 3080,
+   "tags": [
+    "advice",
+    "insightful"
+   ],
+   "grade": 2,
+   "note": "Kids get too much information; find the person they will listen to and have them talk to them"
+  },
+  {
+   "id": "m40",
+   "start": 3105,
+   "end": 3175,
+   "tags": [
+    "emotional",
+    "story"
+   ],
+   "grade": 2,
+   "note": "Never raised his voice at his daughter in 14 years; his son's eyes fill up - careful how he navigates it"
+  },
+  {
+   "id": "m41",
+   "start": 3225,
+   "end": 3260,
+   "tags": [
+    "funny"
+   ],
+   "grade": 2,
+   "note": "'I don't know how my dad didn't beat the s*** out of me' - he was a mouthy kid"
+  },
+  {
+   "id": "m42",
+   "start": 3380,
+   "end": 3415,
+   "tags": [
+    "advice",
+    "insightful"
+   ],
+   "grade": 2,
+   "note": "Past the stage of goals: just live life, be in the moment, enjoy it"
+  }
+ ],
+ "queries": [
+  {
+   "id": "q_funny",
+   "prompt": "funniest moment",
+   "count": 3,
+   "length": 30,
+   "frame": "9:16",
+   "tags": [
+    "funny"
+   ],
+   "truth": [
+    "m38",
+    "m12",
+    "m30"
+   ],
+   "message": "Analyze this podcast and give me 3 of the funniest clips, 30 seconds each, 9:16"
+  },
+  {
+   "id": "q_story",
+   "prompt": "a great story",
+   "count": 1,
+   "length": 60,
+   "frame": "16:9",
+   "tags": [
+    "story"
+   ],
+   "truth": [
+    "m31",
+    "m09",
+    "m01"
+   ],
+   "message": "A great story from the episode, 60 seconds, 16:9"
+  },
+  {
+   "id": "q_hot_take",
+   "prompt": "the spiciest hot take",
+   "count": 1,
+   "length": 30,
+   "frame": "1:1",
+   "tags": [
+    "hot_take"
+   ],
+   "truth": [
+    "m23",
+    "m25",
+    "m20"
+   ],
+   "message": "The spiciest hot take, 30 seconds, 1:1"
+  },
+  {
+   "id": "q_advice",
+   "prompt": "real life advice",
+   "count": 1,
+   "length": 45,
+   "frame": null,
+   "tags": [
+    "advice"
+   ],
+   "truth": [
+    "m35",
+    "m18",
+    "m39"
+   ],
+   "message": "One piece of real life advice from this conversation, 45 seconds"
+  },
+  {
+   "id": "q_quote",
+   "prompt": "the best quote",
+   "count": 1,
+   "length": 15,
+   "frame": null,
+   "tags": [
+    "quotable"
+   ],
+   "truth": [
+    "m35",
+    "m03",
+    "m36"
+   ],
+   "message": "The best quote, 15 seconds"
+  },
+  {
+   "id": "q_topic",
+   "prompt": "a moment about money and his old accountant",
+   "count": 1,
+   "length": null,
+   "frame": null,
+   "tags": [
+    "money"
+   ],
+   "truth": [
+    "m12",
+    "m09",
+    "m14"
+   ],
+   "message": "A moment about money and his old accountant"
+  }
+ ]
+}

@@ -1,3 +1,48 @@
+# Benchmarks
+
+## Podcast pivot: local measurements, 2026-11-10 (no paid model calls)
+
+These runs used the 58.3-min CC BY *Blocks* podcast episode
+(`backend/eval/podcasts/`). The backend image was run under `docker run --cpus 2`
+to approximate the EC2 t3a.small. No OpenRouter calls were made: the shared
+balance ($8.89) was below the $10 floor set for paid runs, so the eval matrix
+in EVALUATION.md §5 has not been run yet.
+
+**Audio upload → audiogram** (`services/audiogram.py`):
+
+| Approach | Encode time, 58-min episode | Output size |
+|---|---:|---:|
+| Animated waveform, whole episode at upload (1080², 10 fps) | killed after >10 min | – |
+| Animated waveform, whole episode at upload (720², 5 fps, AAC re-encode) | 517 s | 143 MB |
+| Native AAC encode of the audio alone | 307 s | – |
+| **Shipped:** static title card at 1 fps + audio stream-copied (m4a/aac/mp3) | **28.8 s** | **61 MB** |
+| **Shipped:** 30 s 9:16 clip with the animated gold waveform, rendered per clip | 41 s | 7.6 MB |
+
+nginx's `/api/` proxy timeout is 600 s, which rules out an animated pass over
+the whole episode at upload. Through the real API on the local stack (no CPU
+cap), the 54 MB `.m4a` uploaded and converted in 10.6 s and came back with
+`media_kind: "audio"` and 720x720. Other audio codecs (wav/flac/ogg) are
+re-encoded to 96 kb/s mono AAC, which is the slow path above.
+
+**Static-shot check** (`chunk_analyzer.static_keep`). The probe samples 24
+frames per 120 s chunk, as analysis does, and counts the chunks where the
+frames show at most 4 distinct looks (mean abs difference < 12 on 32x18 grey):
+
+| Video | Chunks | Reduced to 4 frames | Images sent (vs 24/chunk) |
+|---|---:|---:|---:|
+| Blocks podcast (2 people at a desk) | 32 | 29 | 188 vs 768 (−76%) |
+| Doctorow talk (speaker + changing slide collages) | 34 | 5 | 716 vs 816 (−12%) |
+| Wild Target (feature film) | 54 | 1 (in the end credits) | 1,276 vs 1,296 (−2%) |
+
+On the podcast, the threshold barely matters: 25, 29, 30 and 30 of 32 chunks
+are reduced at 8, 12, 16 and 20. Most chunks show 2–3 looks (the two
+speakers plus a wide shot). The 3 chunks with 7–10 looks are the cold open
+and about 24–28 min, where a clip from another show (the Roc Nation brunch
+rant) is cut in. Fewer images means less vision
+input; the money saved is unmeasured until the matrix runs.
+
+---
+
 # Benchmarks — live-tested, 2026-09-17
 
 This is a **small real sample from one live debugging session**, not a
