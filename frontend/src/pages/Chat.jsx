@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { AnimatePresence } from 'framer-motion'
-import { Send, Loader2, Scissors, ArrowLeft, Github, Library as LibraryIcon } from 'lucide-react'
+import { AnimatePresence, motion } from 'framer-motion'
+import { Send, Loader2, PanelLeft, Library as LibraryIcon } from 'lucide-react'
 import {
   uploadVideo,
   sendChatMessage,
@@ -11,11 +11,16 @@ import {
   getVideo,
   getVideos,
   getClips,
+  listConversations,
+  createConversation,
+  getConversationMessages,
+  renameConversation,
+  deleteConversation,
 } from '../services/api'
 import { useAuth } from '../auth/AuthContext'
-import UserMenu from '../components/UserMenu'
-
-const REPO_URL = 'https://github.com/AnirudhGupta007/autoclip-ai'
+import AppHeader from '../components/AppHeader'
+import ChatSidebar from '../components/ChatSidebar'
+import { SPRING } from '../components/landing/primitives'
 import HeroSection from '../components/HeroSection'
 import VideoBar from '../components/VideoBar'
 import ChatMessage from '../components/ChatMessage'
@@ -54,12 +59,17 @@ export default function Chat() {
   const [videoResolution, setVideoResolution] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
-  const [uploadError, setUploadError] = useState(null)
   const [sending, setSending] = useState(false)
   const [liveProgress, setLiveProgress] = useState(null)
   const [liveClips, setLiveClips] = useState([])
   const [analysis, setAnalysis] = useState(null) // background analysis progress, or null
   const [quota, setQuota] = useState(null) // { limit, remaining }
+  const [mediaKind, setMediaKind] = useState(null) // 'video' | 'audio' | null
+  const [conversations, setConversations] = useState(null) // null while loading
+  const [convError, setConvError] = useState(false)
+  const [conversationId, setConversationId] = useState(null)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [toast, setToast] = useState(null)
 
   const messagesEndRef = useRef(null)
   const inputRef = useRef(null)
@@ -69,10 +79,40 @@ export default function Chat() {
   const pendingRef = useRef(null) // request to resume once analysis finishes
   const analysisActiveRef = useRef(false)
   const pollRef = useRef(null)
+  const conversationIdRef = useRef(null)
 
   useEffect(() => {
     getQuota().then((res) => setQuota(res.data)).catch(() => {})
   }, [])
+
+  // Chat history. Any failure (endpoint missing, server error) degrades to an
+  // empty sidebar; the chat itself keeps working without a conversation id.
+  const loadConversations = useCallback(() => {
+    return listConversations()
+      .then((res) => {
+        setConversations(Array.isArray(res.data) ? res.data : [])
+        setConvError(false)
+      })
+      .catch(() => {
+        setConversations((c) => c || [])
+        setConvError(true)
+      })
+  }, [])
+
+  useEffect(() => {
+    loadConversations()
+  }, [loadConversations])
+
+  const selectConversation = (id) => {
+    conversationIdRef.current = id
+    setConversationId(id)
+  }
+
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 6000)
+    return () => clearTimeout(t)
+  }, [toast])
 
   const outOfQueries = quota?.remaining === 0
   const unlimited = quota && quota.limit == null
@@ -120,7 +160,7 @@ export default function Chat() {
       onClipReady: (data) => setLiveClips((prev) => [...prev, data.clip]),
       // No onError close: EventSource reconnects by itself and the server
       // re-sends a `status` snapshot; polling below covers dead streams.
-    })
+    }, conversationIdRef.current)
   }, [])
 
   const beginAnalysisWatch = useCallback(
@@ -156,10 +196,28 @@ export default function Chat() {
     if (!auto) setMessages((prev) => [...prev, { role: 'user', text }])
 
     const vid = videoIdRef.current
+
+    // First message of a new chat: create its conversation. If that fails the
+    // turn still goes through, just without history.
+    let cid = conversationIdRef.current
+    if (!cid) {
+      try {
+        const res = await createConversation(vid)
+        if (res.data?.id) {
+          cid = res.data.id
+          selectConversation(cid)
+          setConversations((list) => [res.data, ...(list || []).filter((c) => c.id !== cid)])
+          setSearchParams({ c: cid }, { replace: true })
+        }
+      } catch {
+        /* history unavailable — carry on */
+      }
+    }
+
     if (vid) ensureStream(vid)
 
     try {
-      const res = await sendChatMessage(text, vid)
+      const res = await sendChatMessage(text, vid, cid)
       const data = res.data
       if (data.queries_remaining != null) {
         setQuota((q) => ({ ...(q || {}), remaining: data.queries_remaining }))
@@ -184,6 +242,7 @@ export default function Chat() {
       setLiveClips([])
       if (!analysisActiveRef.current) closeStream()
       inputRef.current?.focus()
+      if (cid) loadConversations() // title + order come from the server
     }
   }
 
@@ -213,11 +272,18 @@ export default function Chat() {
     }
   }
 
+  // Before the first video exists the chat isn't rendered, so the toast shows
+  // the error; with a video, it goes in the thread.
+  const reportUploadError = (text) => {
+    if (videoIdRef.current) addAssistant(text)
+    else setToast(text)
+  }
+
   const handleUpload = async (file) => {
     if (uploading) return
     setUploading(true)
     setUploadProgress(0)
-    setUploadError(null)
+    setToast(null)
 
     try {
       const res = await uploadVideo(file, setUploadProgress)
@@ -227,9 +293,11 @@ export default function Chat() {
       pendingRef.current = null
       closeStream()
       videoIdRef.current = video.id
+      selectConversation(null) // a new video starts a new chat
       setVideoId(video.id)
       setSearchParams({ video: video.id }, { replace: true })
       refreshUser()
+      setMediaKind(video.media_kind || (file.type?.startsWith('audio/') ? 'audio' : 'video'))
       setVideoName(file.name)
       setVideoDuration(video.duration)
       setVideoResolution(video.resolution)
@@ -246,11 +314,7 @@ export default function Chat() {
         },
       ])
     } catch (err) {
-      const text = `Upload failed: ${errorText(err)}`
-      setUploadError(text)
-      // Before the first video exists the chat isn't rendered — the banner
-      // below the hero shows the error; with a video, it goes in the thread.
-      if (videoIdRef.current) addAssistant(text)
+      reportUploadError(`Upload failed: ${errorText(err)}`)
     } finally {
       setUploading(false)
       setUploadProgress(0)
@@ -260,7 +324,7 @@ export default function Chat() {
   // Re-open a video from the Library (/studio?video=<id>): restore its clips
   // and, if it is still being analysed, re-attach to the progress stream.
   const openExisting = useCallback(
-    async (vid) => {
+    async (vid, { preset = null } = {}) => {
       try {
         const [vRes, cRes, aRes] = await Promise.all([
           getVideo(vid),
@@ -276,6 +340,12 @@ export default function Chat() {
         setVideoName(video.filename)
         setVideoDuration(video.duration)
         setVideoResolution(video.resolution)
+        setMediaKind(video.media_kind || null)
+        if (preset) {
+          setMessages(preset)
+          if ((aRes.data?.status || video.status) === 'analyzing') beginAnalysisWatch(video.id, aRes.data)
+          return
+        }
         const clips = cRes.data || []
         const status = aRes.data?.status || video.status
         const intro =
@@ -293,38 +363,126 @@ export default function Chat() {
         ])
         if (status === 'analyzing') beginAnalysisWatch(video.id, aRes.data)
       } catch (err) {
-        if (err.response?.status === 404) {
-          setUploadError("That video isn't in your library.")
-        } else {
-          setUploadError(`Couldn't open the video: ${errorText(err)}`)
+        if (preset) {
+          // The chat outlives its source (deleted or archived): show it anyway.
+          videoIdRef.current = null
+          setVideoId(null)
+          setMessages(preset)
+          return
         }
+        setToast(
+          err.response?.status === 404
+            ? "That video isn't in your library."
+            : `Couldn't open the video: ${errorText(err)}`,
+        )
       }
     },
     [beginAnalysisWatch, closeStream, endAnalysisWatch],
   )
 
+  const resetVideo = useCallback(() => {
+    endAnalysisWatch()
+    closeStream()
+    pendingRef.current = null
+    videoIdRef.current = null
+    setVideoId(null)
+    setVideoName(null)
+    setMediaKind(null)
+  }, [endAnalysisWatch, closeStream])
+
+  // Open a past chat: its messages, plus its video if it still exists.
+  const openConversation = useCallback(
+    async (conv) => {
+      selectConversation(conv.id)
+      setSearchParams({ c: conv.id }, { replace: true })
+      let preset
+      try {
+        const res = await getConversationMessages(conv.id)
+        const rows = Array.isArray(res.data) ? res.data : []
+        preset = rows.map((m) => ({
+          role: m.role === 'user' ? 'user' : 'assistant',
+          text: m.content || '',
+          clips: m.clips?.length ? m.clips : undefined,
+        }))
+      } catch {
+        preset = [{ role: 'assistant', text: "Couldn't load this chat's messages. Try again in a moment." }]
+      }
+      if (conversationIdRef.current !== conv.id) return // user moved on
+      if (!preset.length) preset = [{ role: 'assistant', text: 'This chat is empty. Ask for some clips.' }]
+      if (conv.video_id) {
+        if (conv.video_id !== videoIdRef.current) {
+          await openExisting(conv.video_id, { preset })
+        } else {
+          setMessages(preset)
+        }
+      } else {
+        resetVideo()
+        setMessages(preset)
+      }
+    },
+    [openExisting, resetVideo, setSearchParams],
+  )
+
+  const startNewChat = () => {
+    selectConversation(null)
+    const vid = videoIdRef.current
+    if (vid) {
+      // Same video, fresh thread.
+      openExisting(vid)
+      setSearchParams({ video: vid }, { replace: true })
+    } else {
+      resetVideo()
+      setMessages([])
+      setSearchParams({}, { replace: true })
+    }
+    inputRef.current?.focus()
+  }
+
+  const handleRename = async (id, title) => {
+    try {
+      await renameConversation(id, title)
+      setConversations((list) => (list || []).map((c) => (c.id === id ? { ...c, title } : c)))
+    } catch (err) {
+      setToast(`Couldn't rename the chat: ${errorText(err)}`)
+    }
+  }
+
+  const handleDelete = async (id) => {
+    try {
+      await deleteConversation(id)
+      setConversations((list) => (list || []).filter((c) => c.id !== id))
+      if (conversationIdRef.current === id) startNewChat()
+    } catch (err) {
+      setToast(`Couldn't delete the chat: ${errorText(err)}`)
+    }
+  }
+
   const requestedVideo = searchParams.get('video')
+  const requestedConv = searchParams.get('c')
   const wantsNew = searchParams.get('new') === '1'
   const autoOpened = useRef(false)
 
   useEffect(() => {
-    if (requestedVideo && requestedVideo !== videoIdRef.current) {
+    if (requestedConv) {
+      if (requestedConv === conversationIdRef.current || conversations === null) return
+      const conv = conversations.find((c) => c.id === requestedConv)
+      if (conv) openConversation(conv)
+      else setSearchParams({}, { replace: true }) // stale or someone else's link
+    } else if (requestedVideo && requestedVideo !== videoIdRef.current) {
+      selectConversation(null)
       openExisting(requestedVideo)
-    } else if (wantsNew && videoIdRef.current) {
-      endAnalysisWatch()
-      closeStream()
-      pendingRef.current = null
-      videoIdRef.current = null
-      setVideoId(null)
+    } else if (wantsNew) {
+      selectConversation(null)
+      resetVideo()
       setMessages([])
       setSearchParams({}, { replace: true })
     }
-  }, [requestedVideo, wantsNew, openExisting, endAnalysisWatch, closeStream, setSearchParams])
+  }, [requestedConv, requestedVideo, wantsNew, conversations, openConversation, openExisting, resetVideo, setSearchParams])
 
   // The demo account can't upload: drop visitors straight into its first
   // analysed video instead of an upload screen they can't use.
   useEffect(() => {
-    if (!isDemo || requestedVideo || autoOpened.current) return
+    if (!isDemo || requestedVideo || requestedConv || autoOpened.current) return
     autoOpened.current = true
     getVideos()
       .then((res) => {
@@ -333,7 +491,7 @@ export default function Chat() {
         if (pick) setSearchParams({ video: pick.id }, { replace: true })
       })
       .catch(() => {})
-  }, [isDemo, requestedVideo, setSearchParams])
+  }, [isDemo, requestedVideo, requestedConv, setSearchParams])
 
   const handleSend = (text) => {
     text = (typeof text === 'string' ? text : input).trim()
@@ -357,174 +515,173 @@ export default function Chat() {
     }
   }
 
+  const showThread = !!videoId || messages.length > 0
+
+  const quotaChip =
+    quota && !unlimited ? (
+      <span
+        className={`chip nums ${outOfQueries ? 'border-platinum/40 text-platinum' : ''}`}
+        title={`${quota.remaining} of ${quota.limit} queries left today`}
+      >
+        <span className={outOfQueries ? '' : 'text-gold'}>{quota.remaining}</span>
+        <span className="sm:hidden">/{quota.limit}</span>
+        <span className="hidden sm:inline">of {quota.limit} left today</span>
+      </span>
+    ) : null
+
   return (
     <div className="relative flex h-dvh flex-col bg-obsidian">
-      {/* Header */}
-      <header className="hairline flex shrink-0 items-center gap-4 border-t-0 px-6 py-3.5">
-        <Link
-          to="/"
-          className="grid h-8 w-8 place-items-center rounded-lg border border-white/8 text-platinum-muted transition-colors duration-300 hover:border-white/20 hover:text-platinum"
-          aria-label="Back to home"
-        >
-          <ArrowLeft size={14} aria-hidden="true" />
-        </Link>
-
-        <div className="flex items-center gap-2.5">
-          <span className="grid h-8 w-8 place-items-center rounded-lg border border-gold-700/60 bg-obsidian-800">
-            <Scissors size={14} className="text-gold" aria-hidden="true" />
-          </span>
-          <div>
-            <h1 className="font-display text-base leading-none tracking-tight">
-              AutoClip<span className="text-gold">.</span>
-            </h1>
-            <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-platinum-dim">
-              Studio
-            </p>
-          </div>
-        </div>
-
-        <div className="ml-auto flex items-center gap-3">
-          {quota && !unlimited && (
-            <span
-              className={`rounded-full border px-3 py-1 text-xs nums ${
-                outOfQueries ? 'border-oxblood-400/50 text-oxblood-400' : 'border-gold-700/50 text-gold-300'
-              }`}
-            >
-              {quota.remaining} of {quota.limit} queries left today
-            </span>
-          )}
-          <Link
-            to="/library"
-            className="hidden items-center gap-1.5 rounded-full border border-white/10 px-3 py-1 text-xs text-platinum-muted transition-colors duration-300 hover:border-gold-700/50 hover:text-platinum sm:inline-flex"
+      <AppHeader
+        leading={
+          <button
+            type="button"
+            className="icon-btn lg:hidden"
+            onClick={() => setDrawerOpen(true)}
+            aria-label="Open chat history"
           >
-            <LibraryIcon size={12} aria-hidden="true" /> Library
-          </Link>
-          <a
-            href={REPO_URL}
-            target="_blank"
-            rel="noreferrer"
-            aria-label="Source on GitHub"
-            className="grid h-8 w-8 place-items-center rounded-lg border border-white/10 text-platinum-muted transition-colors duration-300 hover:border-white/25 hover:text-platinum"
-          >
-            <Github size={15} aria-hidden="true" />
-          </a>
-          <UserMenu />
-        </div>
-      </header>
+            <PanelLeft size={17} aria-hidden="true" />
+          </button>
+        }
+        trailing={quotaChip}
+      />
 
-      {videoId && (
-        <VideoBar
-          videoName={videoName}
-          videoDuration={videoDuration}
-          videoResolution={videoResolution}
-          onNewUpload={isDemo ? null : handleUpload}
+      <div className="flex min-h-0 flex-1">
+        <ChatSidebar
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          conversations={conversations}
+          error={convError}
+          activeId={conversationId}
+          readOnly={isDemo}
+          onSelect={(c) => c.id !== conversationIdRef.current && openConversation(c)}
+          onNew={startNewChat}
+          onRename={handleRename}
+          onDelete={handleDelete}
         />
-      )}
 
-      {!videoId ? (
-        <>
-          {isDemo ? (
-            <div className="flex flex-1 items-center justify-center px-6 py-14 text-center">
-              <div className="max-w-md">
-                <p className="mb-4 text-[11px] uppercase tracking-[0.3em] text-gold-600">Demo</p>
-                <h2 className="mb-3 font-display text-display-md text-platinum">
-                  Pick a film from the <span className="italic text-gold-400">library.</span>
-                </h2>
-                <p className="mb-8 text-sm leading-relaxed text-platinum-muted">
-                  The demo account can explore pre-analysed videos and chat with the agent.
-                  Create an account to upload your own.
-                </p>
-                <div className="flex justify-center gap-3">
-                  <Link to="/library" className="rounded-full border border-gold-700/50 px-4 py-2 text-sm text-gold-300 hover:bg-gold-700/15">
-                    Open library
-                  </Link>
-                  <Link to="/signup" className="rounded-full bg-gold-sheen bg-[length:200%_auto] px-4 py-2 text-sm font-semibold text-obsidian">
-                    Sign up
-                  </Link>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <HeroSection
-              onUpload={handleUpload}
-              uploading={uploading}
-              uploadProgress={uploadProgress}
+        <div className="flex min-w-0 flex-1 flex-col">
+          {videoId && (
+            <VideoBar
+              videoName={videoName}
+              videoDuration={videoDuration}
+              videoResolution={videoResolution}
+              mediaKind={mediaKind}
+              onNewUpload={isDemo ? null : handleUpload}
             />
           )}
-          {uploadError && (
-            <div
-              role="alert"
-              className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center px-6"
-            >
-              <p className="pointer-events-auto rounded-xl border border-oxblood-400/50 bg-obsidian-800/95 px-4 py-2.5 text-sm text-oxblood-400 shadow-lg">
-                {uploadError}
-              </p>
-            </div>
-          )}
-        </>
-      ) : (
-        <>
-          <div className="flex-1 overflow-y-auto px-6 py-6">
-            <div className="mx-auto max-w-4xl space-y-6">
-              <AnimatePresence initial={false}>
-                {messages.map((msg, i) => (
-                  <ChatMessage key={i} msg={msg} />
-                ))}
-              </AnimatePresence>
 
-              {analysis && !sending && <ProcessingIndicator analysis={analysis} />}
-              {sending && (
-                <ProcessingIndicator progress={liveProgress} liveClips={liveClips} />
-              )}
-
-              <div ref={messagesEndRef} />
-            </div>
-          </div>
-
-          {/* Composer */}
-          <div className="hairline shrink-0 px-6 py-4">
-            <div className="mx-auto max-w-4xl">
-              <SuggestedPrompts
-                onSelect={(p) => handleSend(p)}
-                visible={!sending && !analysis && !outOfQueries && messages.length < 3}
-              />
-
-              <div className="glass flex items-center gap-2 rounded-2xl px-4 py-1.5 transition-colors duration-300 ease-lux focus-within:border-gold-700/60">
-                <label htmlFor="composer" className="sr-only">
-                  Describe the clips you want
-                </label>
-                <input
-                  id="composer"
-                  ref={inputRef}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder={
-                    outOfQueries
-                      ? `Daily limit reached. Come back tomorrow for ${quota?.limit ?? 'more'} more queries.`
-                      : 'Ask for clips — length, format, feeling…'
-                  }
-                  disabled={sending || outOfQueries}
-                  className="flex-1 bg-transparent py-2.5 text-sm text-platinum outline-none placeholder:text-platinum-dim disabled:opacity-50"
-                />
-                <button
-                  type="button"
-                  onClick={() => handleSend()}
-                  disabled={!input.trim() || sending || outOfQueries}
-                  aria-label="Send request"
-                  className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gold-sheen bg-[length:200%_auto] text-obsidian transition-all duration-500 ease-lux hover:bg-[position:80%_50%] disabled:cursor-not-allowed disabled:opacity-25"
-                >
-                  {sending ? (
-                    <Loader2 size={15} className="animate-spin" aria-hidden="true" />
-                  ) : (
-                    <Send size={15} aria-hidden="true" />
-                  )}
-                </button>
+          {!showThread ? (
+            isDemo ? (
+              <div className="flex flex-1 items-center justify-center px-6 py-14 text-center">
+                <div className="max-w-md">
+                  <p className="eyebrow mb-4">Demo</p>
+                  <h2 className="mb-3 font-display text-display-md text-platinum">
+                    Pick a video from the <span className="italic text-gold">library.</span>
+                  </h2>
+                  <p className="mb-8 text-sm leading-relaxed text-platinum-muted">
+                    The demo account can explore pre-analysed videos and chat with the agent.
+                    Create an account to upload your own.
+                  </p>
+                  <div className="flex justify-center gap-3">
+                    <Link to="/library" className="btn btn-secondary">
+                      <LibraryIcon size={14} aria-hidden="true" /> Open library
+                    </Link>
+                    <Link to="/signup" className="btn btn-primary">
+                      Sign up
+                    </Link>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-        </>
-      )}
+            ) : (
+              <HeroSection
+                onUpload={handleUpload}
+                onReject={setToast}
+                uploading={uploading}
+                uploadProgress={uploadProgress}
+              />
+            )
+          ) : (
+            <>
+              <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
+                <div className="mx-auto max-w-4xl space-y-6">
+                  <AnimatePresence initial={false}>
+                    {messages.map((msg, i) => (
+                      <ChatMessage key={i} msg={msg} />
+                    ))}
+                  </AnimatePresence>
+
+                  {analysis && !sending && <ProcessingIndicator analysis={analysis} />}
+                  {sending && (
+                    <ProcessingIndicator progress={liveProgress} liveClips={liveClips} />
+                  )}
+
+                  <div ref={messagesEndRef} />
+                </div>
+              </div>
+
+              {/* Composer */}
+              <div className="shrink-0 px-4 pb-4 pt-2 sm:px-6">
+                <div className="mx-auto max-w-4xl">
+                  <SuggestedPrompts
+                    onSelect={(p) => handleSend(p)}
+                    visible={!sending && !analysis && !outOfQueries && messages.length < 3}
+                  />
+
+                  <div className="surface-raised flex items-center gap-2 rounded-3xl py-1.5 pl-4 pr-1.5 transition-colors duration-200 ease-lux focus-within:border-white/25">
+                    <label htmlFor="composer" className="sr-only">
+                      Describe the clips you want
+                    </label>
+                    <input
+                      id="composer"
+                      ref={inputRef}
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      placeholder={
+                        outOfQueries
+                          ? `Daily limit reached. Come back tomorrow for ${quota?.limit ?? 'more'} more queries.`
+                          : 'Ask for clips — length, format, feeling…'
+                      }
+                      disabled={sending || outOfQueries}
+                      className="min-w-0 flex-1 bg-transparent py-2.5 text-sm text-platinum outline-none placeholder:text-platinum-dim disabled:opacity-50"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleSend()}
+                      disabled={!input.trim() || sending || outOfQueries}
+                      aria-label="Send request"
+                      className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gold text-obsidian transition-[background-color,transform,opacity] duration-200 ease-lux hover:bg-gold-300 active:scale-95 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-platinum-dim"
+                    >
+                      {sending ? (
+                        <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                      ) : (
+                        <Send size={16} aria-hidden="true" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            role="alert"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+            transition={SPRING}
+            className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center px-6"
+          >
+            <p className="glass pointer-events-auto rounded-2xl px-4 py-3 text-sm text-platinum shadow-elev-3">
+              {toast}
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
