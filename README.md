@@ -186,7 +186,7 @@ another user's video/clip id is a **404**.
 | `GET /chat/quota` | `{limit, remaining, resets_in_seconds}` for the signed-in user (`null` = unlimited admin). |
 | `GET /chat/stream/{video_id}` | SSE progress stream (Redis pub/sub relay). |
 | `GET /chat/analysis/{video_id}` | Analyzed flag, duration, moment/clip counts. |
-| `POST /videos/upload` | Multipart `file`; `.mp4 .mov .avi .mkv .webm`, max 500MB. Non-admins: ≤ `MAX_VIDEOS_PER_USER` stored videos, each ≤ `MAX_VIDEO_MINUTES_DEMO` min. Demo account: 403. |
+| `POST /videos/upload` | Multipart `file`; video `.mp4 .mov .avi .mkv .webm` or audio `.mp3 .m4a .wav .aac .ogg .flac`, max 300MB, ≤ `MAX_VIDEO_MINUTES_DEMO` min for everyone (admins too unless `VIDEO_MINUTES_CAP_ADMINS=0`). Non-admins: ≤ `MAX_VIDEOS_PER_USER` stored items. Audio becomes a title-card mp4 (`media_kind: "audio"`); its clips get an animated waveform. Demo account: 403. |
 | `GET /videos` · `GET /videos/{id}` · `DELETE /videos/{id}` | List / get / delete (removes files + DB row). |
 | `GET /clips?video_id=` · `GET /clips/{id}` | List / get clips. |
 | `PUT /clips/{id}` | Trim or change caption style (re-cuts + re-captions). |
@@ -322,7 +322,10 @@ autoclip-ai/
 | `ADMIN_EMAILS` | — | Comma-separated admin accounts. |
 | `ALLOWED_ORIGINS` | `http://localhost:5173,…` | CORS allow-list (never `*`). |
 | `COOKIE_SECURE` | `0` | `1` behind HTTPS → `__Host-session` Secure cookie. |
-| `MAX_VIDEOS_PER_USER` / `MAX_VIDEO_MINUTES_DEMO` | `5` / `60` | Upload caps for non-admins. |
+| `MAX_VIDEOS_PER_USER` / `MAX_VIDEO_MINUTES_DEMO` | `5` / `60` | Stored items per non-admin / max length in minutes. |
+| `VIDEO_MINUTES_CAP_ADMINS` | `1` | Apply the length cap to admins too. |
+| `MAX_UPLOAD_SIZE_MB` | `300` | Upload size cap. |
+| `VISION_STATIC_CHECK` / `VISION_STATIC_FRAMES` / `VISION_STATIC_DIFF` | `1` / `4` / `12` | Static-shot check: send only N frames when a chunk's 24 sampled frames show ≤ N distinct looks (mean abs pixel diff < DIFF on 32x18 grey). |
 | `DEMO_EMAIL` / `DEMO_DAILY_QUERY_LIMIT` | `demo@autoclip.local` / `10` | Shared demo account. |
 | `DAILY_GLOBAL_QUERY_LIMIT` | `0` (off) | Chat messages per UTC day across all visitors. |
 | `CHUNK_LENGTH_SECONDS` | `120` | Analysis chunk size. |
@@ -343,8 +346,7 @@ autoclip-ai/
 | `LANGSMITH_TRACING` | `false` | LangSmith auto-instrumentation; only enable with a real key. |
 | `LANGSMITH_API_KEY` / `_PROJECT` / `_ENDPOINT` | — / `Autoclip` / LangSmith cloud | |
 
-`MAX_UPLOAD_SIZE` is hard-coded at 500MB in `config.py`. The compose file
-wires everything; just fill in `OPENROUTER_API_KEY`.
+The compose file wires everything; just fill in `OPENROUTER_API_KEY`.
 
 ## Observability
 
@@ -384,7 +386,7 @@ Found in a full code review (2026-10-01); not yet fixed.
 - Only `/chat/message` is metered — `/search` (paid embeddings), clip
   edit/export (ffmpeg re-encodes) and uploads are not. `ClipUpdate` times are
   unvalidated (negative / inverted / whole-video ranges accepted).
-- nginx accepts 2GB bodies vs the backend's 500MB cap, and buffers them to
+- nginx accepts 2GB bodies vs the backend's 300MB cap, and buffers them to
   disk first; no per-IP upload quota.
 - `chat.py` returns raw exception text to clients; `/api/telemetry` is public.
 

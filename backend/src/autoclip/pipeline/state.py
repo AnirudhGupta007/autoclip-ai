@@ -109,6 +109,7 @@ class ChunkPlan:
     end: float
     video_path: str
     transcript_window: dict
+    media_kind: str = "video"   # "audio" -> transcript-only analysis (no frames)
 
 
 # ─── LangGraph state ─────────────────────────────────────────
@@ -128,6 +129,7 @@ class PipelineState(TypedDict, total=False):
     # Video info
     video_id: str
     video_path: str
+    media_kind: str             # "video" | "audio" (Video.media_kind)
     video_duration: Annotated[float, _replace]
     video_type: Annotated[str, _replace]
 

@@ -9,10 +9,13 @@ from autoclip.auth.deps import current_user, get_owned_video, require_not_demo
 from autoclip.database import get_db
 from autoclip.models import User, Video, generate_id
 from autoclip.schemas import VideoOut
-from autoclip.config import UPLOAD_DIR, MAX_UPLOAD_SIZE, OUTPUT_DIR
+from autoclip.config import UPLOAD_DIR, MAX_UPLOAD_SIZE, MAX_UPLOAD_SIZE_MB, OUTPUT_DIR
+from autoclip.services.audiogram import AUDIO_EXTS, make_audiogram, seed_profile
 from autoclip.utils.ffmpeg import get_video_info
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__name__)
+VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 router = APIRouter(prefix="/api/videos", tags=["videos"], dependencies=[Depends(current_user)])
 
 
@@ -20,19 +23,22 @@ def _video_out(v: Video, clips_count: int) -> VideoOut:
     from autoclip.utils.paths import public_url
     return VideoOut(id=v.id, filename=v.filename, duration=v.duration, resolution=v.resolution,
                     status=v.status, created_at=v.created_at, clips_count=clips_count,
-                    source_url=public_url(v.file_path))
+                    source_url=public_url(v.file_path), media_kind=v.media_kind or "video")
 
 
 @router.post("/upload", response_model=VideoOut)
 async def upload_video(file: UploadFile = File(...), db: Session = Depends(get_db),
                        user: User = Depends(require_not_demo)):
-    """Upload a video file (non-admins: at most MAX_VIDEOS_PER_USER stored
-    videos, each at most MAX_VIDEO_MINUTES_DEMO long)."""
+    """Upload a video or an audio file (non-admins: at most
+    MAX_VIDEOS_PER_USER stored items; everyone: at most MAX_VIDEO_MINUTES_DEMO
+    long unless VIDEO_MINUTES_CAP_ADMINS=0). Audio — and a video container
+    with no picture — is turned into an audiogram mp4 (services/audiogram.py)
+    and stored with media_kind="audio"."""
     if not file.filename:
         raise HTTPException(400, "No filename provided")
 
     ext = Path(file.filename).suffix.lower()
-    if ext not in {".mp4", ".mov", ".avi", ".mkv", ".webm"}:
+    if ext not in VIDEO_EXTS | AUDIO_EXTS:
         raise HTTPException(400, f"Unsupported format: {ext}")
 
     if not user.is_admin:
@@ -44,7 +50,7 @@ async def upload_video(file: UploadFile = File(...), db: Session = Depends(get_d
     video_id = generate_id()
     video_dir = UPLOAD_DIR / video_id
     video_dir.mkdir(parents=True, exist_ok=True)
-    file_path = video_dir / f"source{ext}"
+    file_path = video_dir / (f"source{ext}" if ext in VIDEO_EXTS else f"upload{ext}")
 
     # Save uploaded file
     size = 0
@@ -54,7 +60,7 @@ async def upload_video(file: UploadFile = File(...), db: Session = Depends(get_d
             if size > MAX_UPLOAD_SIZE:
                 f.close()
                 shutil.rmtree(video_dir)
-                raise HTTPException(413, "File too large (max 500MB)")
+                raise HTTPException(413, f"File too large (max {MAX_UPLOAD_SIZE_MB:g}MB)")
             f.write(chunk)
 
     # Get video metadata
@@ -64,12 +70,33 @@ async def upload_video(file: UploadFile = File(...), db: Session = Depends(get_d
         info = {"duration": None, "resolution": None}
 
     max_minutes = auth_settings.MAX_VIDEO_MINUTES_DEMO
-    if not user.is_admin and max_minutes > 0:
+    capped = auth_settings.VIDEO_MINUTES_CAP_ADMINS or not user.is_admin
+    if capped and max_minutes > 0:
         duration = info.get("duration")
         if duration is None or duration > max_minutes * 60:
             shutil.rmtree(video_dir, ignore_errors=True)
-            raise HTTPException(413, (f"Videos can be at most {max_minutes} minutes long on this account."
-                                      if duration else "Couldn't read this video's duration."))
+            raise HTTPException(413, (f"Uploads can be at most {max_minutes} minutes long."
+                                      if duration else "Couldn't read this file's duration."))
+
+    media_kind = "audio" if ext in AUDIO_EXTS or not info.get("resolution") else "video"
+    if media_kind == "audio":
+        if not info.get("duration"):
+            shutil.rmtree(video_dir, ignore_errors=True)
+            raise HTTPException(400, "Couldn't read this audio file.")
+        audiogram = video_dir / "source.mp4"
+        if file_path == audiogram:  # picture-less .mp4: encode next to it, then swap
+            file_path = file_path.rename(video_dir / "upload.mp4")
+        try:
+            await run_in_threadpool(make_audiogram, str(file_path), str(audiogram),
+                                    file.filename, video_id, float(info["duration"]))
+            seed_profile(video_id, float(info["duration"]))
+        except Exception:
+            logger.exception("audiogram failed for %s", video_id)
+            shutil.rmtree(video_dir, ignore_errors=True)
+            shutil.rmtree(OUTPUT_DIR / video_id, ignore_errors=True)
+            raise HTTPException(422, "Couldn't convert this audio file.")
+        file_path = audiogram
+        info["resolution"] = get_video_info(str(audiogram)).get("resolution")
 
     video = Video(
         id=video_id,
@@ -78,6 +105,7 @@ async def upload_video(file: UploadFile = File(...), db: Session = Depends(get_d
         duration=info.get("duration"),
         resolution=info.get("resolution"),
         status="uploaded",
+        media_kind=media_kind,
         user_id=user.id,
     )
     db.add(video)

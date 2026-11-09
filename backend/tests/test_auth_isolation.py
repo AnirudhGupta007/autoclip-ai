@@ -505,11 +505,14 @@ def test_upload_caps(monkeypatch):
     r = _upload(c2)
     assert r.status_code == 413
     assert c2.get("/api/videos").json() == []
-    # admins: no count/length cap
+    # admins: no count cap, but the length cap applies to them too
+    # (VIDEO_MINUTES_CAP_ADMINS defaults on; tests/test_podcast.py covers it)
     admin = _client()
     admin.post("/api/auth/login", json={"email": "boss@example.com", "password": PASSWORD})
     if admin.get("/api/auth/me").status_code != 200:
         admin, _ = _signup("boss@example.com")
+    assert _upload(admin).status_code == 413
+    monkeypatch.setattr(videos_router, "get_video_info", lambda p: {"duration": 30.0, "resolution": "x"})
     for _ in range(3):
         assert _upload(admin).status_code == 200
 

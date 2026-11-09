@@ -64,6 +64,9 @@ class Video(Base):
     # uploaded -> analyzing -> analyzed | failed  (background job: utils/analysis_jobs.py;
     # legacy rows may still say "completed"/"processing" — normalised there)
     status = Column(String, default="uploaded")
+    # "video" | "audio" — audio uploads are stored as an audiogram mp4
+    # (services/audiogram.py) and analysed from the transcript only.
+    media_kind = Column(String, nullable=False, default="video", server_default="video")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     # Owner. Nullable only at the DB level (migration 0002 back-fills legacy
     # rows); every code path that creates a Video sets it.

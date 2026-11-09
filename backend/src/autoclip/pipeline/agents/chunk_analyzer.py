@@ -15,6 +15,12 @@ Two input modes (VISION_INPUT_MODE):
       for 24 frames. If a video call fails outright, the chunk falls back
       to frames mode once.
 
+Podcast savings: an audio upload (ChunkPlan.media_kind="audio", an
+audiogram) gets NO frames and a transcript-only prompt. In frames mode a
+cheap static-shot check groups the sampled frames by pixel difference; if
+they show <= VISION_STATIC_FRAMES distinct looks (fixed podcast camera, or a
+few angles) only one frame per look is sent (padded to that many).
+
 Robustness (live-run fixes): retries (CHUNK_ANALYZE_ATTEMPTS) with
 tolerant JSON repair; per-moment validation so one bad field doesn't
 discard the whole chunk; failures logged and counted in telemetry. The
@@ -47,6 +53,9 @@ from autoclip.config import (
     VISION_MAX_TOKENS,
     CHUNK_ANALYZE_ATTEMPTS,
     VISION_FFMPEG_CONCURRENCY,
+    VISION_STATIC_CHECK,
+    VISION_STATIC_FRAMES,
+    VISION_STATIC_DIFF,
 )
 from autoclip.llm.openrouter import get_vision_model, extract_json, message_text, finish_reason
 from autoclip.pipeline.state import PipelineState, Moment, ChunkPlan
@@ -101,6 +110,14 @@ _SYSTEM_VIDEO = _SYSTEM_COMMON + """
 Input: the chunk itself as a video WITH its audio track, plus a machine \
 transcript of the chunk (may have gaps). Use what you see and hear; the video's \
 own timeline (starting at 0) is the time base.
+"""
+
+_SYSTEM_AUDIO = _SYSTEM_COMMON + """
+Input: an AUDIO-ONLY episode (podcast/talk) — there is nothing to see, only \
+the transcript lines of this chunk. Judge moments by what is said: hooks, \
+stories, strong opinions, jokes, quotable lines, clear advice. Set \
+visual_energy to 0; infer audio energy from the words (laughter, emphasis). \
+description says who is talking and about what, <200 chars.
 """
 
 _NUM01 = {"type": "number", "minimum": 0, "maximum": 1}
@@ -217,6 +234,48 @@ def _sample_frames(video_path: str, chunk_start: float, times: list[float], out_
     if not outs and times:
         raise subprocess.CalledProcessError(1, "ffmpeg", "no frames could be extracted")
     return [(t, str(p)) for t, p in outs if p.exists() and p.stat().st_size > 0]
+
+
+def _frame_signature(path: str):
+    """32x18 greyscale thumbnail as float32 (None if unreadable)."""
+    try:
+        import cv2
+        import numpy as np
+        img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            return None
+        return cv2.resize(img, (32, 18), interpolation=cv2.INTER_AREA).astype(np.float32)
+    except Exception:
+        return None
+
+
+def static_keep(sigs: list, max_looks: int = VISION_STATIC_FRAMES,
+                threshold: float = VISION_STATIC_DIFF) -> Optional[list[int]]:
+    """Indices of the frames to send if the chunk is a static shot, else None.
+
+    Greedy grouping: a frame starts a new "look" unless its mean abs
+    difference to an existing look's first frame is < threshold. More than
+    `max_looks` looks -> not static (send everything). Otherwise keep each
+    look's first frame, padded with evenly spaced frames up to `max_looks`.
+    """
+    n = len(sigs)
+    if n <= max_looks or max_looks < 1:
+        return None
+    looks: list[int] = []
+    for i, s in enumerate(sigs):
+        if s is None:
+            return None
+        if any(float(abs(s - sigs[j]).mean()) < threshold for j in looks):
+            continue
+        looks.append(i)
+        if len(looks) > max_looks:
+            return None
+    keep = set(looks)
+    for k in range(max_looks):
+        if len(keep) >= max_looks:
+            break
+        keep.add(min(n - 1, int((k + 0.5) * n / max_looks)))
+    return sorted(keep)
 
 
 def _encode_chunk_video(video_path: str, start: float, duration: float, out_path: Path,
@@ -353,7 +412,11 @@ def _build_messages(plan: ChunkPlan, mode: str, work: Path) -> tuple[list[dict],
             logger.warning("chunk_analyzer: video encode failed for chunk %s (%s) — using frames", plan.index, e)
             mode = "frames"
 
-    if mode != "video":
+    if mode == "audio":
+        content = [{"type": "text", "text": header + "\nAudio-only episode: no frames, judge by the transcript."}]
+        system = _SYSTEM_AUDIO
+
+    if mode not in ("video", "audio"):
         times = _frame_times(chunk_len, VISION_MAX_FRAMES)
         try:
             with _FFMPEG_SLOTS:
@@ -362,9 +425,15 @@ def _build_messages(plan: ChunkPlan, mode: str, work: Path) -> tuple[list[dict],
             logger.warning("chunk_analyzer: frame sampling failed for chunk %s: %s", plan.index, e)
             frames = []
         spacing = chunk_len / max(1, len(times))
-        content = [{"type": "text", "text": header + (
-            f"\n{len(frames)} frames follow, spaced ~{spacing:.1f}s apart across the whole chunk."
-        )}]
+        note = f"spaced ~{spacing:.1f}s apart across the whole chunk."
+        if VISION_STATIC_CHECK and frames:
+            keep = static_keep([_frame_signature(fp) for _, fp in frames])
+            if keep is not None:
+                logger.info("chunk_analyzer: chunk %s is a static shot — sending %d of %d frames",
+                            plan.index, len(keep), len(frames))
+                frames = [frames[i] for i in keep]
+                note = "from a static shot (near-identical frames were dropped)."
+        content = [{"type": "text", "text": header + f"\n{len(frames)} frames follow, {note}"}]
         for t, fp in frames:
             content.append({"type": "text", "text": f"frame @ {t:.1f}s"})
             content.append({"type": "image_url", "image_url": {"url": _data_uri(fp, "image/jpeg")}})
@@ -398,7 +467,9 @@ def analyze_chunk(plan: ChunkPlan, video_id: Optional[str] = None,
                   mode: Optional[str] = None) -> list[Moment]:
     """Run one chunk through OpenRouter vision analysis and return Moment[]."""
     mode = (mode or VISION_INPUT_MODE or "frames").lower()
-    if mode not in ("frames", "video"):
+    if plan.media_kind == "audio":
+        mode = "audio"
+    elif mode not in ("frames", "video"):
         logger.warning("VISION_INPUT_MODE=%r unknown — using frames", mode)
         mode = "frames"
 

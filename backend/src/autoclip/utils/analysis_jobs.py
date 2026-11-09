@@ -302,6 +302,7 @@ def _run_pipeline(video_id: str) -> None:
         if not video:
             raise RuntimeError("video disappeared")
         video_path, duration = video.file_path, video.duration
+        media_kind = video.media_kind or "video"
     finally:
         db.close()
 
@@ -309,6 +310,7 @@ def _run_pipeline(video_id: str) -> None:
     state = {
         "video_id": video_id,
         "video_path": video_path,
+        "media_kind": media_kind,
         "clip_configs": [],
         "analysis_complete": False,
         "needs_reanalysis": False,

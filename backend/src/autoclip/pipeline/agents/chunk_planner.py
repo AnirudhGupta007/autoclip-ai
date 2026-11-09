@@ -42,10 +42,11 @@ def chunk_planner_node(state: PipelineState) -> dict:
     duration = max(duration, 1.0)
 
     # Don't spend vision calls on the end credits (utils/video_profile.py
-    # detects them from keyframe luma); global_fusion also drops any moment
-    # that still lands there.
+    # detects them from keyframe luma; only for videos >= 70 min, never for
+    # audio); global_fusion also drops any moment that still lands there.
     from autoclip.utils.video_profile import credits_start
-    credits = credits_start(state.get("video_id", ""), video_path)
+    media_kind = state.get("media_kind") or "video"
+    credits = credits_start(state.get("video_id", ""), video_path, media_kind)
     if credits and 60.0 < credits < duration:
         logger.info("chunk_planner: end credits from %.0fs — analysing [0, %.0f] of %.0fs",
                     credits, credits, duration)
@@ -80,6 +81,7 @@ def chunk_planner_node(state: PipelineState) -> dict:
             end=e_r,
             video_path=video_path,
             transcript_window=_window(transcript_data, s_r, e_r),
+            media_kind=media_kind,
         ))
         if end >= duration:
             break

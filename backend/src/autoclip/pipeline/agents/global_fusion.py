@@ -72,7 +72,8 @@ def global_fusion_node(state: PipelineState) -> dict:
         return {"moment_map": [], "analysis_complete": True}
 
     from autoclip.utils.video_profile import credits_start
-    credits = credits_start(state.get("video_id", ""), state.get("video_path", ""))
+    credits = credits_start(state.get("video_id", ""), state.get("video_path", ""),
+                            state.get("media_kind") or "video")
     if credits:
         before = len(raw)
         raw = [m for m in raw if m.start < credits]

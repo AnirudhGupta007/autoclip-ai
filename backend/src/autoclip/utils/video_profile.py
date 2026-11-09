@@ -34,6 +34,9 @@ DARK_LUMA = 36.0           # mean luma (0-255) below which a keyframe counts as 
 DARK_TAIL_FRACTION = 0.8   # share of tail keyframes that must be dark
 MIN_CREDITS_SECONDS = 20.0
 SPEECH_MARGIN = 30.0
+# Only feature-length videos have end credits worth detecting; podcasts and
+# talks under this length (and audiograms, which are black by design) skip it.
+CREDITS_MIN_VIDEO_SECONDS = 70 * 60
 
 _locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
@@ -49,7 +52,7 @@ def _profile_path(video_id: str) -> Path:
 
 
 def detect_credits_start(video_path: str, duration: float) -> Optional[float]:
-    if duration < 60:
+    if duration < CREDITS_MIN_VIDEO_SECONDS:
         return None
     window = min(duration * 0.2, 900.0)
     samples = scan_keyframe_luma(video_path, duration - window)
@@ -114,10 +117,11 @@ def get_profile(video_id: str, video_path: str) -> dict:
         return data
 
 
-def credits_start(video_id: str, video_path: str) -> Optional[float]:
-    """Where the end credits begin (None = none detected / probe failed).
-    Analysis uses it to skip the credits entirely (chunk planning + fusion)."""
-    if not video_id or not video_path:
+def credits_start(video_id: str, video_path: str, media_kind: str = "video") -> Optional[float]:
+    """Where the end credits begin (None = none detected / probe failed /
+    audio upload). Analysis uses it to skip the credits entirely (chunk
+    planning + fusion)."""
+    if not video_id or not video_path or media_kind == "audio":
         return None
     try:
         c = get_profile(video_id, video_path).get("credits_start")

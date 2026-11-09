@@ -16,6 +16,7 @@ class VideoOut(BaseModel):
     created_at: datetime
     clips_count: int = 0
     source_url: Optional[str] = None  # ownership-checked /api/files/... URL
+    media_kind: str = "video"         # "video" | "audio" (stored as an audiogram mp4)
 
     model_config = {"from_attributes": True}
 

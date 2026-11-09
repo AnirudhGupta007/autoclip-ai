@@ -60,6 +60,13 @@ VISION_MAX_TOKENS = int(os.getenv("VISION_MAX_TOKENS", "4096"))
 CHUNK_ANALYZE_ATTEMPTS = int(os.getenv("CHUNK_ANALYZE_ATTEMPTS", "2"))
 # Max concurrent ffmpeg frame-sampling/encode jobs across chunks (~100 MB RSS each).
 VISION_FFMPEG_CONCURRENCY = int(os.getenv("VISION_FFMPEG_CONCURRENCY", "2"))
+# Static-shot check (frames mode): the sampled frames are grouped by mean
+# abs pixel difference (32x18 grey, 0-255). If they fall into at most
+# VISION_STATIC_FRAMES distinct "looks" (a fixed podcast camera, or a few
+# angles) only that many frames are sent instead of VISION_MAX_FRAMES.
+VISION_STATIC_CHECK = os.getenv("VISION_STATIC_CHECK", "1").strip().lower() in {"1", "true", "yes"}
+VISION_STATIC_FRAMES = int(os.getenv("VISION_STATIC_FRAMES", "4"))
+VISION_STATIC_DIFF = float(os.getenv("VISION_STATIC_DIFF", "12"))
 
 # Global fusion embedding dedupe (pipeline/agents/global_fusion.py).
 FUSION_DEDUPE_THRESHOLD = float(os.getenv("FUSION_DEDUPE_THRESHOLD", "0.92"))
@@ -80,7 +87,8 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Upload cap in MB (frontend nginx client_max_body_size must be >= this).
-MAX_UPLOAD_SIZE = int(float(os.getenv("MAX_UPLOAD_SIZE_MB", "500")) * 1024 * 1024)
+MAX_UPLOAD_SIZE_MB = float(os.getenv("MAX_UPLOAD_SIZE_MB", "300"))
+MAX_UPLOAD_SIZE = int(MAX_UPLOAD_SIZE_MB * 1024 * 1024)
 
 # Public-demo quota: agent runs per visitor IP per UTC day (see services/rate_limit.py).
 # DAILY_GLOBAL_QUERY_LIMIT caps the whole site; 0 disables the global cap.

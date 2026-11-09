@@ -49,18 +49,22 @@ CATEGORY_WORDS: dict[str, list[str]] = {
     "heated": ["heated", "rant", "angry", "anger", "fiery", "furious", "outburst", "passionate",
                "argument", "argues", "roast", "roasts", "fired up"],
     "story": ["story", "stories", "anecdote", "narrative", "tale"],
+    "hot_take": ["hot take", "hot takes", "controversial", "contrarian", "unpopular opinion", "spicy",
+                 "bold claim", "provocative", "opinion", "opinions"],
+    "advice": ["advice", "tip", "tips", "how to", "how-to", "actionable", "recommendation",
+               "recommendations", "guidance", "practical"],
 }
 # Vision-model style_tags -> categories, for moments the tagger hasn't seen.
 STYLE_TAG_MAP = {"funny": "funny", "emotional": "emotional", "story": "story",
-                 "story_beat": "story", "quote": "quotable", "hot_take": "heated",
-                 "controversial": "heated", "educational": "insightful"}
+                 "story_beat": "story", "quote": "quotable", "hot_take": "hot_take",
+                 "controversial": "hot_take", "educational": "insightful"}
 
 _STOP = set("""a an the and or of to in on at for with from by about into this that these those it its is are
 was were be been being i me my you your he him his she her they them their we our us give get gets got make want need
 please can could would some any one two three four five six all most more best great good really very just
 clip clips moment moments scene scenes part bit video movie film talk show seconds second sec secs s long
 short where when who what which how there here something someone somebody tiktok reels shorts youtube
-vertical square format x 9 16 1 under over each analyze analyse find""".split())
+vertical square format x 9 16 1 under over each analyze analyse find podcast episode guest host""".split())
 
 
 def _norm(s: str) -> str:

@@ -53,9 +53,12 @@ DEMO_DAILY_QUERY_LIMIT = _int("DEMO_DAILY_QUERY_LIMIT", 10)   # shared by every 
 # 0 disables. Per-user limit is config.DAILY_QUERY_LIMIT.
 IP_DAILY_QUERY_LIMIT = _int("IP_DAILY_QUERY_LIMIT", 20)
 
-# Upload caps for non-admin users.
+# Upload caps. MAX_VIDEOS_PER_USER is for non-admins only; the length cap
+# applies to admins too unless VIDEO_MINUTES_CAP_ADMINS=0 (podcast/1-hour
+# scope — longer analyses are what cost money).
 MAX_VIDEOS_PER_USER = _int("MAX_VIDEOS_PER_USER", 5)
 MAX_VIDEO_MINUTES_DEMO = _int("MAX_VIDEO_MINUTES_DEMO", 60)
+VIDEO_MINUTES_CAP_ADMINS = os.getenv("VIDEO_MINUTES_CAP_ADMINS", "1").strip().lower() in {"1", "true", "yes"}
 
 # Media files: when served behind our nginx, answer with X-Accel-Redirect to
 # an `internal` location instead of streaming bytes through Python.

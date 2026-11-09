@@ -69,6 +69,7 @@ def render_clip_assets(
     out_w, out_h = fmt["width"], fmt["height"]
     crop = None
     scale = None
+    audiogram = profile.get("media_kind") == "audio"   # title card: no faces, draw a waveform
     if src_w and src_h:
         source_ratio = src_w / src_h
         if frame == "16:9" and abs(source_ratio - 16 / 9) < 0.02:
@@ -77,7 +78,7 @@ def render_clip_assets(
             lb = profile.get("letterbox") if frame != "16:9" else None
             region = (lb["w"], lb["h"], lb["x"], lb["y"]) if lb else (src_w, src_h, 0, 0)
             center = None
-            if frame in ("9:16", "1:1"):
+            if frame in ("9:16", "1:1") and not audiogram:
                 try:
                     center = face_center_x(video_path, start, end, region=lb)
                 except Exception as e:
@@ -104,7 +105,8 @@ def render_clip_assets(
     final_path = str(out_dir / output_name)
     tmp_path = str(out_dir / f"{Path(output_name).stem}.tmp.mp4")
     try:
-        render_clip(video_path, tmp_path, start, end, crop=crop, scale=scale, ass_path=ass_path)
+        render_clip(video_path, tmp_path, start, end, crop=crop, scale=scale, ass_path=ass_path,
+                    waveform=audiogram)
     except Exception:
         if not ass_path:
             raise
@@ -113,7 +115,7 @@ def render_clip_assets(
         # captions.ass on disk must mean "burned into final.mp4" (the eval
         # and the Clip row's caption_file rely on it).
         (out_dir / "captions.ass").unlink(missing_ok=True)
-        render_clip(video_path, tmp_path, start, end, crop=crop, scale=scale)
+        render_clip(video_path, tmp_path, start, end, crop=crop, scale=scale, waveform=audiogram)
     os.replace(tmp_path, final_path)
     for leftover in ("raw.mp4", "reframed.mp4"):
         try:

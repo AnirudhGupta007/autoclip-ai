@@ -283,12 +283,17 @@ def render_clip(
     crop: Optional[tuple[int, int, int, int]] = None,
     scale: Optional[tuple[int, int]] = None,
     ass_path: Optional[str] = None,
+    waveform: bool = False,
 ) -> str:
     """Cut + crop + scale + burn captions in ONE frame-accurate encode.
 
     Replaces cut(-c copy, keyframe-snapped) -> reframe -> burn: the stream-copy
     cut started at the previous keyframe (clips ran up to ~2s long) and every
     extra step re-encoded the video again.
+
+    `waveform` (audio uploads, needs `scale`): the source is a static title
+    card (services/audiogram.py); an animated gold waveform of the clip's
+    audio is drawn across the middle of the output, under the captions.
     """
     filters = []
     if crop:
@@ -297,14 +302,24 @@ def render_clip(
     if scale:
         filters.append(f"scale={scale[0]}:{scale[1]}")
     filters.append("setsar=1")
+    ass = None
     if ass_path:
         ass_escaped = ass_path.replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
-        filters.append(f"ass='{ass_escaped}'")
+        ass = f"ass='{ass_escaped}'"
+    if waveform and scale:
+        from autoclip.services.audiogram import waveform_filter
+        graph = (f"[0:v]{','.join(filters)},fps=30[bg];{waveform_filter(scale[0], scale[1])};"
+                 f"[bg][wave]overlay=0:(main_h-overlay_h)/2:shortest=1" + (f",{ass}" if ass else "") + "[v]")
+        video_args = ["-filter_complex", graph, "-map", "[v]", "-map", "0:a:0"]
+    else:
+        if ass:
+            filters.append(ass)
+        video_args = ["-vf", ",".join(filters)]
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-ss", f"{max(0.0, start):.3f}", "-i", input_path,
         "-t", f"{max(0.1, end - start):.3f}",
-        "-vf", ",".join(filters),
+        *video_args,
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
         "-c:a", "aac", "-b:a", "128k",
         "-movflags", "+faststart",

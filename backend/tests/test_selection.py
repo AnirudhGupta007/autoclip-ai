@@ -99,7 +99,7 @@ def test_hybrid_candidates_unions_tag_keyword_vector():
     idx = S.hybrid_candidates(ms, "an action scene about pricing", query_vec=[1, 0], limit=3)
     assert idx[:3] == [0, 1, 2]  # interleaved: vector #1, tag #1, keyword #1
     # style_tags are the fallback only for untagged moments
-    assert S.moment_categories(M(0, 1, style_tags=["quote", "hot_take"])) == {"quotable", "heated"}
+    assert S.moment_categories(M(0, 1, style_tags=["quote", "hot_take"])) == {"quotable", "hot_take"}
     assert S.moment_categories(M(0, 1, style_tags=["quote"], categories=[], why="tagged")) == set()
 
 
@@ -132,3 +132,12 @@ def test_parse_ass_events():
     assert P.captions_from_ass(True, 2) == (True, "ass_events")
     assert P.captions_from_ass(True, 0) == (False, "ass_empty")
     assert P.captions_from_ass(False, None) == (None, None)
+
+
+def test_podcast_categories():
+    from autoclip.services import moment_tagger as T
+    assert {"hot_take", "advice"} <= set(T.CATEGORIES)
+    assert set(S.CATEGORY_WORDS) <= set(T.CATEGORIES)  # every query category is taggable
+    assert S.query_categories("give me 3 hot takes from the podcast") == ["hot_take"]
+    assert S.query_categories("practical advice and tips") == ["advice"]
+    assert "podcast" not in S.keywords("best podcast moment about pricing")

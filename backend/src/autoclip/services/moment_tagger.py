@@ -26,7 +26,8 @@ from autoclip.llm.openrouter import get_chat_model, invoke_json
 logger = logging.getLogger(__name__)
 
 CATEGORIES = ["funny", "action", "tense", "emotional", "romantic",
-              "insightful", "quotable", "heated", "story"]
+              "insightful", "quotable", "heated", "story",
+              "hot_take", "advice"]   # last two: podcasts / interviews
 BATCH = 20
 WORKERS = 4
 LABEL = "lite_tagging"
@@ -39,7 +40,9 @@ romantic   - flirting, attraction, love, intimacy
 insightful - a clear, smart idea, argument or explanation worth sharing
 quotable   - a punchy line that works out of context (one-liner, soundbite)
 heated     - anger, a rant, passionate condemnation, a fiery outburst, crowd roaring
-story      - a self-contained anecdote or narrative beat with setup and payoff"""
+story      - a self-contained anecdote or narrative beat with setup and payoff
+hot_take   - a bold, contrarian or controversial opinion stated with conviction
+advice     - concrete, actionable advice or a how-to tip the listener could apply"""
 
 
 class _Tag(BaseModel):
