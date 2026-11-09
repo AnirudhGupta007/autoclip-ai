@@ -101,6 +101,8 @@ services:
       # ─── Public-demo quota (services/rate_limit.py) ──────
       DAILY_QUERY_LIMIT: ${DAILY_QUERY_LIMIT:-2}
       DAILY_GLOBAL_QUERY_LIMIT: ${DAILY_GLOBAL_QUERY_LIMIT:-0}
+      DAILY_ANALYSIS_MINUTES_LIMIT: ${DAILY_ANALYSIS_MINUTES_LIMIT:-240}
+      ANALYSIS_MAX_CONCURRENCY: ${ANALYSIS_MAX_CONCURRENCY:-1}
       IP_DAILY_QUERY_LIMIT: ${IP_DAILY_QUERY_LIMIT:-20}
 
       # ─── Auth (backend/src/autoclip/auth/settings.py) ────
@@ -121,6 +123,10 @@ services:
       INACTIVE_ACCOUNT_DAYS: ${INACTIVE_ACCOUNT_DAYS:-60}
       CLEANUP_ENABLED: ${CLEANUP_ENABLED:-1}
       CLEANUP_HOUR_UTC: ${CLEANUP_HOUR_UTC:-3}
+
+      # ─── Readiness (/api/health/ready, services/health.py) ─
+      READY_MIN_FREE_DISK_GB: ${READY_MIN_FREE_DISK_GB:-1}
+      READY_MIN_OPENROUTER_USD: ${READY_MIN_OPENROUTER_USD:-0}
       # nginx serves media from its internal /_protected/ location after the
       # backend's ownership check (routers/files.py)
       FILES_ACCEL_REDIRECT: "1"

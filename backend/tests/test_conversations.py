@@ -140,7 +140,7 @@ def test_unanalysed_video_turn_is_stored_as_pending(pair, monkeypatch):
     from autoclip.utils import analysis_jobs
     a, me = pair["a"], pair["a_me"]
     vid, _ = _make_video(me["id"], analyzed=False)
-    monkeypatch.setattr(analysis_jobs, "_run", lambda video_id, on_fail: None)
+    monkeypatch.setattr(analysis_jobs, "_run_pipeline", lambda video_id: None)
     cid = a.post("/api/conversations", json={"video_id": vid}).json()["id"]
     r = a.post("/api/chat/message", json={"message": "clips please", "video_id": vid, "conversation_id": cid})
     assert r.status_code == 200 and r.json()["pending_request"] is True

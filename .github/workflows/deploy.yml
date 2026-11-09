@@ -102,6 +102,8 @@ jobs:
 
       - name: Smoke test the live site
         run: |
-          curl -fsS --retry 10 --retry-delay 6 --retry-all-errors "$SITE_URL/api/health"
+          # /ready checks the DB, Redis, disk, ffmpeg and the OpenRouter key
+          # (503 until all pass); /api/health is only the liveness probe.
+          curl -fsS --retry 10 --retry-delay 6 --retry-all-errors "$SITE_URL/api/health/ready"
           echo
           curl -fsS -o /dev/null -w "landing page: %{http_code}\n" "$SITE_URL/"

@@ -52,6 +52,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/chat", tags=["chat"], dependencies=[Depends(current_user)])
 
 GENERIC_ERROR = "Something went wrong on our side and your query wasn't charged. Please try again."
+ANALYSIS_CAP_DETAIL = ("The site has analysed as much as it can today (a daily budget keeps the demo "
+                       "free). Your query wasn't charged — please try again tomorrow.")
 
 
 class ChatMessage(BaseModel):
@@ -127,13 +129,27 @@ def _fmt_eta(seconds: Optional[int]) -> str:
     return "under a minute" if m < 1 else f"about {m} min"
 
 
+def _in_line(state: dict) -> Optional[str]:
+    pos = state.get("queue_position")
+    return f"#{pos} in line" if pos else None
+
+
 def _analysing_text(state: dict) -> str:
+    line = _in_line(state)
+    if line:
+        return (f"Your video is queued for analysis — {line} (one analysis runs at a time). "
+                "I'll pick up your request automatically as soon as it's ready.")
     return (f"Still analysing your video — {state.get('progress', 0)}% done, "
             f"{_fmt_eta(state.get('eta_seconds'))} left. I'll pick up your request "
             "automatically as soon as it's ready.")
 
 
 def _started_text(state: dict) -> str:
+    line = _in_line(state)
+    if line:
+        return (f"First I need to watch the whole video — it's queued for analysis, {line} "
+                f"(then {_fmt_eta(state.get('eta_seconds'))}). You'll see progress here, and I'll "
+                "make your clips automatically when it's done.")
     return (f"First I need to watch the whole video — analysis started, "
             f"{_fmt_eta(state.get('eta_seconds'))}. You'll see progress here, and I'll "
             "make your clips automatically when it's done.")
@@ -141,7 +157,7 @@ def _started_text(state: dict) -> str:
 
 def _public_analysis(state: dict) -> dict:
     keys = ("status", "progress", "stage", "eta_seconds", "chunks_done", "chunks_total",
-            "moment_count", "duration", "error")
+            "moment_count", "duration", "error", "queue_position")
     return {k: state.get(k) for k in keys}
 
 
@@ -225,7 +241,13 @@ async def chat_message(msg: ChatMessage, request: Request, response: Response,
                 rate_limit.refund(charge)
                 analysis_jobs.revoke_followup_credit(subj, vid)
 
-            res = await asyncio.to_thread(analysis_jobs.start_analysis, video_id, _on_fail)
+            res = await asyncio.to_thread(analysis_jobs.start_analysis, video_id, _on_fail,
+                                          cap_exempt=bool(user.is_admin))
+            if res["result"] == "daily_cap":
+                rate_limit.refund(charge)
+                raise HTTPException(
+                    status_code=429, detail=ANALYSIS_CAP_DETAIL,
+                    headers={"Retry-After": str(rate_limit.seconds_until_reset())})
             if res["result"] == "archived":
                 rate_limit.refund(charge)
                 from autoclip.services.storage import ARCHIVED_MESSAGE

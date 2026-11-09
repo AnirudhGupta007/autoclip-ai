@@ -89,3 +89,37 @@ the chat keeps working without history.
 `DELETE /api/me` → 204. Deletes the user's files and rows, clears the
 session cookie. The UI then refreshes `/api/auth/me` (expects 401) and goes
 to `/`. The demo account should get 403; the UI hides the button for it.
+
+## Analysis queue position (backend addition)
+
+Analyses run one at a time (`ANALYSIS_MAX_CONCURRENCY=1`). While a video
+waits for the slot, its analysis state carries `queue_position`: an integer,
+`1` = next in line. It is `null` once the analysis is running (and when it
+isn't analysing at all). It appears in:
+
+- `analysis.queue_position` in the `POST /api/chat/message` response
+  (`is_processing: true`). The reply text already says "#N in line".
+- `GET /api/chat/analysis/{video_id}` → `queue_position`.
+- SSE `GET /api/chat/stream/{video_id}`: the `status` snapshot, and
+  `analysis_started` / `analysis_progress` events. While queued,
+  `analysis_progress` has `stage: "queued"`, `progress: 0` and the new
+  position each time it changes; the first event after leaving the line has
+  `stage: "starting"` and `queue_position: null`.
+
+`eta_seconds` while queued is the video's own analysis time, not counting
+the wait.
+
+## Backend notes on the fields above
+
+- `GET /api/me/usage`: `storage_quota_bytes` is `null` for admins
+  (unlimited), like `queries_limit`. `source_expires_at` and
+  `clips_expire_at` are also `null` for admin and demo accounts, which are
+  exempt from retention.
+- Stored message `clips` are re-read from the clip table when the
+  conversation is fetched; a clip deleted since (retention or by the user)
+  keeps its fields with `file_url` and `thumbnail_url` set to `null`.
+- `POST /api/chat/message` can also answer **429** when the site's daily
+  analysis budget (`DAILY_ANALYSIS_MINUTES_LIMIT`) is used up; `detail`
+  explains it, and the query is not charged.
+- Upload errors: `409` too many active uploads, `413` file too large or over
+  the storage quota, `507` the server is low on disk (uploads paused).

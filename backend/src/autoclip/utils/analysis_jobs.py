@@ -14,7 +14,12 @@ graph on a daemon thread:
     a no-op ("already_running") instead of a duplicate run. A heartbeat lets
     us tell a live job from one orphaned by a process restart (reported as
     failed/"interrupted", so the next request simply restarts it).
-  • A small semaphore caps concurrent analyses (ANALYSIS_MAX_CONCURRENCY).
+  • A FIFO queue caps concurrent analyses (ANALYSIS_MAX_CONCURRENCY, 1 on
+    the t3a.small). Waiting jobs report `queue_position` (1 = next) in
+    video_state() and in `analysis_progress` events (stage "queued").
+  • A site-wide daily budget of analysed minutes (rate_limit,
+    DAILY_ANALYSIS_MINUTES_LIMIT) is charged when a job starts and refunded
+    if it fails; admins are exempt.
 
 Quota: the request that starts an analysis is charged once; the router then
 grants a one-shot "follow-up credit" so the automatic re-send of that same
@@ -28,6 +33,7 @@ long as the heartbeat is fresh.
 from __future__ import annotations
 import json
 import logging
+import math
 import os
 import threading
 import time
@@ -45,11 +51,14 @@ HEARTBEAT_SECONDS = 15
 STALE_AFTER_SECONDS = 120
 PROGRESS_TTL = 7 * 24 * 3600
 CREDIT_TTL = 24 * 3600
-MAX_CONCURRENCY = int(os.getenv("ANALYSIS_MAX_CONCURRENCY", "2"))
+MAX_CONCURRENCY = max(1, int(os.getenv("ANALYSIS_MAX_CONCURRENCY", "1")))
 
 _jobs: dict[str, threading.Thread] = {}
 _jobs_lock = threading.Lock()
-_slots = threading.BoundedSemaphore(max(1, MAX_CONCURRENCY))
+# Jobs that are running or waiting, in arrival order: the first
+# MAX_CONCURRENCY run, the rest wait. RLock-backed, so helpers can nest.
+_queue: list[str] = []
+_queue_cv = threading.Condition()
 _mem_progress: dict[str, dict] = {}
 _mem_credits: dict[str, float] = {}
 
@@ -93,6 +102,8 @@ def estimate_seconds(duration: Optional[float]) -> int:
 
 
 def _eta(progress: dict, duration: Optional[float]) -> int:
+    if progress.get("stage") == "queued":
+        return estimate_seconds(duration)   # own run only; the wait shows as queue_position
     started = progress.get("started_at") or time.time()
     elapsed = max(0.0, time.time() - started)
     pct = float(progress.get("progress") or 0)
@@ -132,6 +143,41 @@ def consume_followup_credit(ip: str, video_id: str) -> bool:
 
 def revoke_followup_credit(ip: str, video_id: str) -> None:
     consume_followup_credit(ip, video_id)
+
+
+# ─── queue ──────────────────────────────────────────────────────
+
+def queue_position(video_id: str) -> Optional[int]:
+    """1 = next in line, 0 = running, None = not in this worker's queue."""
+    with _queue_cv:
+        if video_id not in _queue:
+            return None
+        i = _queue.index(video_id)
+    return 0 if i < MAX_CONCURRENCY else i - MAX_CONCURRENCY + 1
+
+
+def _wait_for_slot(video_id: str, duration: Optional[float]) -> None:
+    with _queue_cv:
+        if video_id not in _queue:
+            _queue.append(video_id)
+    last = None
+    while True:
+        pos = queue_position(video_id)
+        if not pos:
+            return
+        if pos != last:   # tell the browser where it stands ("#2 in line")
+            _progress_event(video_id, duration, stage="queued", progress=0, queue_position=pos)
+            last = pos
+        with _queue_cv:
+            if queue_position(video_id):
+                _queue_cv.wait(timeout=HEARTBEAT_SECONDS)
+
+
+def _leave_queue(video_id: str) -> None:
+    with _queue_cv:
+        if video_id in _queue:
+            _queue.remove(video_id)
+        _queue_cv.notify_all()
 
 
 # ─── state ──────────────────────────────────────────────────────
@@ -187,22 +233,31 @@ def video_state(video_id: str) -> dict:
         "chunks_done": progress.get("chunks_done"),
         "chunks_total": progress.get("chunks_total"),
         "eta_seconds": _eta(progress, duration) if status == ANALYZING else None,
+        "queue_position": _queued_at(video_id, progress) if status == ANALYZING else None,
         "error": error,
         "archived": archived,
     }
     return out
 
 
+def _queued_at(video_id: str, progress: dict) -> Optional[int]:
+    """Position in line while waiting (None once running)."""
+    pos = queue_position(video_id) if _job_alive(video_id) else progress.get("queue_position")
+    return pos or None
+
+
 # ─── job control ────────────────────────────────────────────────
 
 def start_analysis(video_id: str, on_fail: Optional[Callable[[], None]] = None,
-                   force: bool = False) -> dict:
+                   force: bool = False, cap_exempt: bool = False) -> dict:
     """Start analysing `video_id` in the background unless it is already
     running (or already analysed and not `force`). Never blocks on the work.
 
-    Returns {"result": started|already_running|already_analyzed|not_found|archived,
-             "state": video_state(...)}. "archived": the source file is gone
-    (services/storage.py), so there is nothing to analyse.
+    Returns {"result": started|already_running|already_analyzed|not_found|
+             archived|daily_cap, "state": video_state(...)}. "archived": the
+    source file is gone (services/storage.py), so there is nothing to
+    analyse. "daily_cap": today's site-wide analysis minutes are used up
+    (not checked when `cap_exempt`, i.e. for admins).
     """
     from autoclip.database import SessionLocal
     from autoclip.models import Video
@@ -218,6 +273,14 @@ def start_analysis(video_id: str, on_fail: Optional[Callable[[], None]] = None,
         if state.get("archived"):
             return {"result": "archived", "state": state}
 
+        minutes_charge = None
+        if not cap_exempt:
+            from autoclip.services import rate_limit
+            minutes = max(1, math.ceil(float(state.get("duration") or 0) / 60))
+            ok, minutes_charge = rate_limit.try_consume_analysis_minutes(minutes)
+            if not ok:
+                return {"result": "daily_cap", "state": state}
+
         db = SessionLocal()
         try:
             video = db.query(Video).filter(Video.id == video_id).first()
@@ -228,16 +291,19 @@ def start_analysis(video_id: str, on_fail: Optional[Callable[[], None]] = None,
             db.close()
 
         eta = estimate_seconds(duration)
+        with _queue_cv:   # join the line now, so the position is right at once
+            _queue.append(video_id)
         _set_progress(video_id, status=ANALYZING, stage="queued", progress=0,
                       chunks_done=0, chunks_total=None, started_at=time.time(),
-                      error=None, eta_seconds=eta)
-        t = threading.Thread(target=_run, args=(video_id, on_fail), daemon=True,
+                      error=None, eta_seconds=eta, queue_position=queue_position(video_id) or None)
+        t = threading.Thread(target=_run, args=(video_id, on_fail, minutes_charge), daemon=True,
                              name=f"analysis-{video_id}")
         _jobs[video_id] = t
         t.start()
 
     pipeline_events.publish_analysis(video_id, "analysis_started",
-                                     {"eta_seconds": eta, "duration": duration})
+                                     {"eta_seconds": eta, "duration": duration,
+                                      "queue_position": queue_position(video_id) or None})
     return {"result": "started", "state": video_state(video_id)}
 
 
@@ -249,10 +315,11 @@ def _progress_event(video_id: str, duration: Optional[float], **fields) -> None:
         "chunks_done": p.get("chunks_done"),
         "chunks_total": p.get("chunks_total"),
         "eta_seconds": _eta(p, duration),
+        "queue_position": p.get("queue_position") or None,
     })
 
 
-def _run(video_id: str, on_fail: Optional[Callable[[], None]]) -> None:
+def _run(video_id: str, on_fail: Optional[Callable[[], None]], minutes_charge=None) -> None:
     from autoclip.database import SessionLocal
     from autoclip.models import Video
 
@@ -265,10 +332,16 @@ def _run(video_id: str, on_fail: Optional[Callable[[], None]]) -> None:
     hb = threading.Thread(target=heartbeat, daemon=True, name=f"analysis-hb-{video_id}")
     hb.start()
     try:
-        with _slots:
-            _run_pipeline(video_id)
+        duration = _duration_of(video_id)
+        _wait_for_slot(video_id, duration)
+        # Out of the line: the clock (ETA) starts now, and the browser drops "#N in line".
+        _progress_event(video_id, duration, stage="starting", progress=1,
+                        queue_position=None, started_at=time.time())
+        _run_pipeline(video_id)
     except Exception:
         logger.exception("analysis job failed for video=%s", video_id)
+        from autoclip.services import rate_limit
+        rate_limit.refund(minutes_charge)   # our failure: the minutes go back
         db = SessionLocal()
         try:
             v = db.query(Video).filter(Video.id == video_id).first()
@@ -289,9 +362,21 @@ def _run(video_id: str, on_fail: Optional[Callable[[], None]]) -> None:
                 logger.warning("analysis on_fail callback raised", exc_info=True)
     finally:
         stop.set()
+        _leave_queue(video_id)
         with _jobs_lock:
             if _jobs.get(video_id) is threading.current_thread():
                 _jobs.pop(video_id, None)
+
+
+def _duration_of(video_id: str) -> Optional[float]:
+    from autoclip.database import SessionLocal
+    from autoclip.models import Video
+    db = SessionLocal()
+    try:
+        v = db.query(Video).filter(Video.id == video_id).first()
+        return v.duration if v else None
+    finally:
+        db.close()
 
 
 def _run_pipeline(video_id: str) -> None:

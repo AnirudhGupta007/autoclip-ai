@@ -128,6 +128,16 @@ def _owns_video(user_id: Optional[int], video_id: str) -> bool:
         db.close()
 
 
+def _is_admin(user_id: Optional[int]) -> bool:
+    from autoclip.models import User
+    db: Session = SessionLocal()
+    try:
+        return bool(user_id is not None and db.query(User.id).filter(
+            User.id == user_id, User.is_admin.is_(True)).first())
+    finally:
+        db.close()
+
+
 def _archived_message() -> str:
     from autoclip.services.storage import ARCHIVED_MESSAGE
     return ARCHIVED_MESSAGE
@@ -225,14 +235,17 @@ def ingest_and_analyze_video(video_id: str, config: RunnableConfig = None) -> di
     "not_found" | "archived" | "daily_cap", "eta_minutes", "message"}. While it runs you cannot produce
     clips — tell the user analysis is running and roughly how long it takes;
     the app notifies them and resumes their request when it finishes."""
-    if not _owns_video(_user_id(config), video_id):
+    uid = _user_id(config)
+    if not _owns_video(uid, video_id):
         return {"status": "not_found", "eta_minutes": 0, "message": f"No video found with id {video_id}."}
-    res = analysis_jobs.start_analysis(video_id)
+    res = analysis_jobs.start_analysis(video_id, cap_exempt=_is_admin(uid))
     state = res["state"]
     eta_s = state.get("eta_seconds") or analysis_jobs.estimate_seconds(state.get("duration"))
     eta_min = max(1, round(eta_s / 60))
     msgs = {
-        "started": f"Analysis started in the background (about {eta_min} min).",
+        "started": (f"Analysis queued — #{state['queue_position']} in line, then about {eta_min} min."
+                    if state.get("queue_position") else
+                    f"Analysis started in the background (about {eta_min} min)."),
         "already_running": f"Analysis is already running ({state.get('progress', 0)}% done, about {eta_min} min left).",
         "already_analyzed": f"This video is already analyzed ({state.get('moment_count', 0)} moments).",
         "not_found": f"No video found with id {video_id}.",

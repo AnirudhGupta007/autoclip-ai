@@ -4,6 +4,7 @@ import contextlib
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from autoclip.database import init_db
 from autoclip.auth import settings as auth_settings
@@ -72,6 +73,16 @@ app.include_router(files.router)
 @app.get("/api/health")
 def health():
     return {"status": "ok", "service": "AutoClip AI", "version": "2.0.0"}
+
+
+@app.get("/api/health/ready")
+async def health_ready():
+    """Deep readiness: DB, Redis, disk, ffmpeg, OpenRouter key/balance
+    (services/health.py). 200 when ready, 503 otherwise. Public."""
+    from autoclip.services import health as h
+    ok, checks = await h.readiness()
+    return JSONResponse({"status": "ready" if ok else "not_ready", "checks": checks},
+                        status_code=200 if ok else 503)
 
 
 @app.get("/api/telemetry", dependencies=[Depends(require_admin)])

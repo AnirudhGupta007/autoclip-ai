@@ -34,11 +34,12 @@ sketched at the bottom for when one box isn't enough.
 | Security group | inbound **80, 443 only** — port 22 closed |
 | Instance profile | `autoclip-ec2-ssm` (`AmazonSSMManagedInstanceCore`) — all admin goes through SSM |
 | Quota | `DAILY_QUERY_LIMIT=2`, `DAILY_GLOBAL_QUERY_LIMIT=100` in `.env` |
+| Limits | 300 MB / 60 min uploads (audio or video) for everyone, 3 active uploads and 1.5 GB per user (section 7) |
 
-2GB RAM + 4GB swap is tight but works for short demo videos. Postgres + Redis
-+ the Python app + nginx idle around 1–1.5GB; ffmpeg pushes it into swap.
-For long (1–3 hour) videos use a `t3.large` (8GB) and ~100GB of disk — a
-3-hour source plus its chunk files can use tens of GB during analysis.
+2GB RAM + 4GB swap is tight but works for uploads of up to an hour, one
+analysis at a time. Postgres + Redis + the Python app + nginx idle around
+1–1.5GB; ffmpeg pushes it into swap. For longer videos use a `t3.large`
+(8GB) and more disk.
 
 | Instance | vCPU / RAM | Use |
 |---|---|---|
@@ -73,7 +74,7 @@ sudo nano .env
 #   POSTGRES_PASSWORD=<long random>   # set BEFORE first boot — the pgdata volume keeps the first one
 #   DAILY_QUERY_LIMIT=2
 #   DAILY_GLOBAL_QUERY_LIMIT=100
-#   ADMIN_EMAILS=you@example.com      # then sign up with it right away (section 7)
+#   ADMIN_EMAILS=you@example.com      # then sign up with it right away (section 9)
 ```
 
 Then set up HTTPS (next section) and start with the prod overlay:
@@ -129,7 +130,7 @@ When a domain is added later, re-issue for the domain the same way.
    runs, in `/opt/autoclip`:
    `git fetch && git reset --hard <sha>` →
    `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build`,
-   wait for it, then `curl` `https://<ip>/api/health` as a smoke test.
+   wait for it, then `curl` `https://<ip>/api/health/ready` as a smoke test.
    Deploys are serialized (concurrency group) and pinned to the tested SHA.
 
 One-time AWS setup:
@@ -142,8 +143,13 @@ One-time AWS setup:
 - `AWS_REGION`, `INSTANCE_ID` and `SITE_URL` are hard-coded in the
   workflow's `env:` — update them if the instance changes.
 
-Caveat: the smoke test hits `/api/health`, which returns a static response
-without touching Postgres/Redis/OpenRouter, and there is no rollback.
+The smoke test hits `/api/health/ready`, which answers 503 until Postgres,
+Redis, free disk (>= `READY_MIN_FREE_DISK_GB`), ffmpeg and the OpenRouter key
+all check out. The OpenRouter balance is cached 5 minutes; a slow or failing
+OpenRouter API reads as "unknown" and doesn't fail the check, only a missing
+key or a balance at/below `READY_MIN_OPENROUTER_USD` does. The response
+never includes the balance. `/api/health` stays the cheap liveness probe for
+the Docker healthcheck. There is still no automatic rollback.
 
 ### 5. Manual deploy / admin
 
@@ -155,7 +161,62 @@ cd /opt/autoclip && sudo git pull \
 sudo docker compose logs -f backend
 ```
 
-### 6. Stop / start to save credits
+### 6. Nightly database backups to S3
+
+`backend/scripts/backup_db.sh` runs on the **host**: `pg_dump` from the
+postgres container → gzip → `aws s3 cp` to `s3://$BACKUP_S3_BUCKET/autoclip/db/`
+(region `ap-south-1`). It keeps the newest 7 dumps locally in
+`~/autoclip-backups` and refuses to upload a suspiciously small dump. Media
+files are not backed up (sources expire after 7 days anyway).
+
+Not set up yet. One-time setup, done by the owner (none of this exists today):
+
+1. Create a private bucket in `ap-south-1` (block all public access, SSE-S3).
+   Add a lifecycle rule to expire `autoclip/db/` objects after e.g. 30 days.
+2. Give the instance role `autoclip-ec2-ssm` an inline policy allowing
+   `s3:PutObject` on `arn:aws:s3:::<bucket>/autoclip/db/*` only.
+3. On the box: `sudo apt-get install -y awscli` (or the v2 installer), then
+   a root crontab entry:
+
+```bash
+15 2 * * * BACKUP_S3_BUCKET=<bucket> /opt/autoclip/backend/scripts/backup_db.sh >> /var/log/autoclip-backup.log 2>&1
+```
+
+Run it once by hand first and check the object appears. To restore:
+
+```bash
+aws s3 cp s3://<bucket>/autoclip/db/autoclip-<stamp>.sql.gz . --region ap-south-1
+gunzip -c autoclip-<stamp>.sql.gz | sudo docker compose exec -T postgres psql -U autoclip -d autoclip
+```
+
+The dump uses `--clean --if-exists`, so it replaces the existing tables.
+
+### 7. Storage rules and disk
+
+The 30 GB disk has ~17 GB free and isn't being resized, so uploads have
+limits and files expire (all env keys, see README "Configuration"):
+
+| Rule | Default | Key |
+|---|---|---|
+| Active uploads per user | 3 | `MAX_VIDEOS_PER_USER` |
+| Storage per user (sources + clips) | 1.5 GB | `STORAGE_QUOTA_MB` |
+| Uploads paused when free disk is below | 5 GB | `MIN_FREE_DISK_GB` |
+| Source file deleted (video then "archived") | 7 days after upload | `SOURCE_RETENTION_DAYS` |
+| Rendered clips deleted | 30 days after rendering | `CLIP_RETENTION_DAYS` |
+| Inactive account: all files deleted, account kept | 60 days | `INACTIVE_ACCOUNT_DAYS` |
+
+The cleanup runs inside the backend: an asyncio loop started in the app's
+lifespan wakes every 15 minutes and runs once per UTC day from
+`CLEANUP_HOUR_UTC` (03:00), guarded by a Redis `SET NX` key so only one
+worker runs it. Admin and demo accounts are exempt, so the public demo's
+source never expires. `CLEANUP_ENABLED=0` turns it off.
+
+Analysis runs one job at a time (`ANALYSIS_MAX_CONCURRENCY=1`); others wait
+in line and the chat shows their position. `DAILY_ANALYSIS_MINUTES_LIMIT`
+(default 240) caps the minutes of media non-admins can have analysed per UTC
+day, site-wide.
+
+### 8. Stop / start to save credits
 
 ```bash
 aws ec2 stop-instances  --region ap-south-1 --instance-ids i-XXXX
@@ -176,7 +237,7 @@ aws cloudwatch put-metric-alarm --region us-east-1 --alarm-name autoclip-spend \
   --comparison-operator GreaterThanThreshold --evaluation-periods 1
 ```
 
-### 7. Accounts, migrations and the demo
+### 9. Accounts, migrations and the demo
 
 The schema is managed by Alembic (`backend/alembic/`). The backend
 container's entrypoint runs `alembic upgrade head` before uvicorn, and the
@@ -200,6 +261,13 @@ sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --bui
 (`stamp` is belt-and-braces: 0001 only creates tables that are missing, so a
 plain `upgrade head` on the old schema is also safe.)
 
+Later migrations apply on their own at deploy: 0003 moment categories, 0004
+`videos.media_kind`, 0005 chat history (`conversations`, `messages`), 0006
+storage (`videos.archived`, `users.last_active_at`, back-filled with the
+upgrade time so the 60-day inactivity clock starts then). Chats made before
+0005 lived in LangGraph threads named `u:{uid}:v:{vid}`; they stay in
+Postgres but no longer show, since history now comes from `conversations`.
+
 **Bootstrap the admin:** open `/signup` and sign up with the first
 `ADMIN_EMAILS` address — that claims the passwordless owner account the
 migration created, with all existing videos. Do this right after deploying:
@@ -208,6 +276,11 @@ could claim it.
 
 **Demo account** ("Try demo" on `/login`, and `/demo`): give it one or more
 already-analysed videos — they move from their current owner to the demo:
+
+> The Doctorow talk is 61.2 minutes, over the 60-minute cap that now applies
+> to admins too. To upload it as the admin, set `VIDEO_MINUTES_CAP_ADMINS=0`
+> in `.env` and restart the backend, upload, then set it back to `1`. Or
+> trim the file under 60 minutes first.
 
 ```bash
 sudo docker compose exec backend python scripts/seed_demo.py --video-id <id> [--video-id <id2>]
@@ -230,20 +303,19 @@ python backend/scripts/eval_movie.py …` (an admin account skips the quota).
 ## Code changes needed before this is production-shaped
 
 Option A runs on one box because local disk is fine there. These are still
-worth doing, and the first two are **required** for a 3-hour video:
+worth doing before going past one box or past an hour of video:
 
-1. **Background analysis jobs.** `ingest_and_analyze_video` runs
-   synchronously inside the chat request. A 3-hour film takes 15–45 minutes;
-   the frontend gives up at 300s, nginx cuts `/api/` off at 600s, and an ALB
-   defaults to 60s. Move the run to a worker and report progress over the SSE
-   channel that already exists.
-2. **Raise the upload ceiling / ingest by path.** `MAX_UPLOAD_SIZE` is 500MB
-   (`backend/src/autoclip/config.py`); a 3-hour film is 2–8GB. Either raise it
-   and use presigned S3 multipart upload, or add an "ingest from path"
+1. ~~**Background analysis jobs.**~~ Done in-process: analysis runs on a
+   background thread with SSE progress and a one-at-a-time queue
+   (`utils/analysis_jobs.py`). Across several containers it would need a real
+   worker + queue.
+2. **Raise the upload ceiling / ingest by path.** `MAX_UPLOAD_SIZE_MB` is 300
+   (`backend/src/autoclip/config.py`), sized for an hour of video. Longer
+   files need presigned S3 multipart upload, or an "ingest from path"
    endpoint for files already on the box.
 3. **Write outputs to S3.** Clips land on local disk and are served from a
    static mount. Fine on one box, fatal across containers.
-4. ~~**Access control.**~~ Done — accounts + per-user scoping (section 7).
+4. ~~**Access control.**~~ Done — accounts + per-user scoping (section 9).
 
 ---
 

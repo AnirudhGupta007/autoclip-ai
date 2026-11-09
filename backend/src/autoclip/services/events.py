@@ -4,8 +4,11 @@ Publishers call publish_*() to fire events into the `pipeline:{video_id}`
 channel; GET /api/chat/stream/{video_id} pipes them to the browser.
 
 Event types:
-  analysis_started   {eta_seconds, duration}          background job accepted
-  analysis_progress  {stage, progress, chunks_done, chunks_total, eta_seconds}
+  analysis_started   {eta_seconds, duration, queue_position}   background job accepted
+  analysis_progress  {stage, progress, chunks_done, chunks_total, eta_seconds,
+                      queue_position}   stage "queued" + queue_position N (1 =
+                      next) while waiting for the single analysis slot; null
+                      once running
   chunk_done         {chunk_index, moment_count, moments}   (chunk_analyzer)
   moments            {moments}                               (global_fusion)
   analysis_done      {moment_count}

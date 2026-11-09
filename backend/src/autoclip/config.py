@@ -94,6 +94,9 @@ MAX_UPLOAD_SIZE = int(MAX_UPLOAD_SIZE_MB * 1024 * 1024)
 # DAILY_GLOBAL_QUERY_LIMIT caps the whole site; 0 disables the global cap.
 DAILY_QUERY_LIMIT = int(os.getenv("DAILY_QUERY_LIMIT", "2"))
 DAILY_GLOBAL_QUERY_LIMIT = int(os.getenv("DAILY_GLOBAL_QUERY_LIMIT", "0"))
+# Site-wide AI-spend cap on analysis: minutes of media analysed per UTC day
+# by non-admins (an hour of video costs ~$0.35 to analyse). 0 disables.
+DAILY_ANALYSIS_MINUTES_LIMIT = int(os.getenv("DAILY_ANALYSIS_MINUTES_LIMIT", "240"))
 
 CAPTION_STYLES = ["bold_pop", "minimal_clean", "karaoke_sweep", "bounce_in", "glow"]
 

@@ -28,6 +28,7 @@ from typing import Optional
 from fastapi import Request
 
 from autoclip.auth import settings as auth_settings
+from autoclip import config
 from autoclip.config import DAILY_GLOBAL_QUERY_LIMIT, DAILY_QUERY_LIMIT
 from autoclip.services.events import _get_sync
 
@@ -129,7 +130,7 @@ def _global_key() -> str:
 @dataclass
 class Charge:
     """Counters incremented by one try_consume(), so refund() undoes exactly those."""
-    keys: list[str] = field(default_factory=list)
+    keys: list = field(default_factory=list)   # key names, or (key, amount)
 
 
 def used(user) -> int:
@@ -174,10 +175,36 @@ def try_consume(user, ip: str) -> tuple[bool, Optional[int], str, Charge]:
     return True, max(0, limit - used), "", charge
 
 
+# ─── analysis minutes (site-wide) ───────────────────────────────
+
+def _analysis_key() -> str:
+    return f"quota:analysis_min:{_today()}"
+
+
+def analysis_minutes_used() -> int:
+    return _get(_analysis_key())
+
+
+def try_consume_analysis_minutes(minutes: int) -> tuple[bool, Charge]:
+    """Reserve `minutes` of today's site-wide analysis budget
+    (DAILY_ANALYSIS_MINUTES_LIMIT, 0 = unlimited). Refund with refund()."""
+    limit = config.DAILY_ANALYSIS_MINUTES_LIMIT
+    charge = Charge()
+    if limit <= 0 or minutes <= 0:
+        return True, charge
+    key = _analysis_key()
+    if _incr(key, minutes) > limit:
+        _incr(key, -minutes)
+        return False, charge
+    charge.keys.append((key, minutes))
+    return True, charge
+
+
 def refund(charge: Optional[Charge]) -> None:
     """Give the run back when it failed on our side (e.g. provider error)."""
     if not charge:
         return
     for k in charge.keys:
-        _incr(k, -1)
+        key, amount = k if isinstance(k, tuple) else (k, 1)
+        _incr(key, -amount)
     charge.keys = []

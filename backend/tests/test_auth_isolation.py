@@ -147,7 +147,7 @@ def two_users():
 
 # ─── unauthenticated sweep ──────────────────────────────────────
 
-PUBLIC = {"/api/health"}
+PUBLIC = {"/api/health", "/api/health/ready"}
 
 
 def _api_routes(routes) -> list[APIRoute]:
