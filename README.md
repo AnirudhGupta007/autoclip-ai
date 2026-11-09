@@ -180,21 +180,25 @@ another user's video/clip id is a **404**.
 | `POST /auth/signup` `{email, password}` | Create account (password ≥ 10 chars), sets the session cookie. 409 if taken; 429 past `SIGNUP_LIMIT_PER_IP_PER_DAY`. |
 | `POST /auth/login` `{email, password}` | Generic 401 on bad credentials; 429 past `LOGIN_LIMIT_PER_15_MIN` per IP+email. |
 | `POST /auth/demo` | Sign into the shared read-only demo account (see `scripts/seed_demo.py`). |
-| `POST /auth/logout` · `GET /auth/me` | Revoke this session · `{id, email, is_admin, is_demo, video_count, max_videos, queries_remaining, query_limit}`. |
+| `POST /auth/logout` · `GET /auth/me` | Revoke this session · `{id, email, is_admin, is_demo, video_count, max_videos, max_video_minutes, queries_remaining, query_limit, google_linked}` (`google_linked` is always `false` until Google sign-in lands). |
 | `GET /files/{uploads\|outputs}/{video_id}/…` | Ownership-checked media (source videos, clips, thumbnails); nginx serves the bytes via `X-Accel-Redirect`. |
-| `POST /chat/message` `{message, video_id?}` | Runs the orchestrator. Returns `{response, clips, moment_count, queries_remaining}` + `X-Queries-Remaining` header; **429** when the daily quota is spent. |
+| `POST /chat/message` `{message, video_id?, conversation_id?}` | Runs the orchestrator. Returns `{response, clips, moment_count, is_processing, analysis, queries_remaining}` + `X-Queries-Remaining` header; **429** when the daily quota or the site's daily analysis minutes are spent. With `conversation_id` the turn is stored in that conversation (thread `u:{user}:c:{conversation}`). |
 | `GET /chat/quota` | `{limit, remaining, resets_in_seconds}` for the signed-in user (`null` = unlimited admin). |
-| `GET /chat/stream/{video_id}` | SSE progress stream (Redis pub/sub relay). |
-| `GET /chat/analysis/{video_id}` | Analyzed flag, duration, moment/clip counts. |
-| `POST /videos/upload` | Multipart `file`; video `.mp4 .mov .avi .mkv .webm` or audio `.mp3 .m4a .wav .aac .ogg .flac`, max 300MB, ≤ `MAX_VIDEO_MINUTES_DEMO` min for everyone (admins too unless `VIDEO_MINUTES_CAP_ADMINS=0`). Non-admins: ≤ `MAX_VIDEOS_PER_USER` stored items. Audio becomes a title-card mp4 (`media_kind: "audio"`); its clips get an animated waveform. Demo account: 403. |
-| `GET /videos` · `GET /videos/{id}` · `DELETE /videos/{id}` | List / get / delete (removes files + DB row). |
+| `GET /chat/stream/{video_id}` | SSE progress stream (Redis pub/sub relay); `analysis_progress` carries `queue_position` while waiting for the single analysis slot. |
+| `GET /chat/analysis/{video_id}` | Analyzed flag, duration, moment/clip counts, progress, `queue_position` (1 = next in line). |
+| `GET /conversations` · `POST /conversations` `{video_id?}` | Chat history: list (newest first) · create. Demo account: empty list, 403 on create. |
+| `GET /conversations/{id}/messages` · `PATCH /conversations/{id}` `{title}` · `DELETE /conversations/{id}` | Messages oldest first (`{id, role, content, clips, created_at}`) · rename · delete. Demo: 403 on rename/delete. |
+| `GET /me/usage` | `{queries_used, queries_limit, storage_bytes, storage_quota_bytes, items: [{video_id, title, media_kind, size_bytes, source_expires_at, clips_expire_at, archived}]}`. |
+| `DELETE /me` | Delete the account: files, rows, sessions, chat checkpoints; clears the cookie. Demo: 403. |
+| `POST /videos/upload` | Multipart `file`; video `.mp4 .mov .avi .mkv .webm` or audio `.mp3 .m4a .wav .aac .ogg .flac`, max 300MB, ≤ `MAX_VIDEO_MINUTES_DEMO` min for everyone (admins too unless `VIDEO_MINUTES_CAP_ADMINS=0`). Non-admins: ≤ `MAX_VIDEOS_PER_USER` active uploads (409) and `STORAGE_QUOTA_MB` in total (413). Everyone: **507** while free disk < `MIN_FREE_DISK_GB`. Audio becomes a title-card mp4 (`media_kind: "audio"`); its clips get an animated waveform. Demo account: 403. |
+| `GET /videos` · `GET /videos/{id}` · `DELETE /videos/{id}` | List / get / delete (removes files + DB rows; its chats stay). Items include `media_kind`, `archived`, `source_expires_at`, `clips_expire_at`. |
 | `GET /clips?video_id=` · `GET /clips/{id}` | List / get clips. |
 | `PUT /clips/{id}` | Trim or change caption style (re-cuts + re-captions). |
 | `POST /clips/{id}/export` `{format}` | Re-encode to `9:16`, `1:1` or `16:9`. |
 | `GET /clips/{id}/download/{format\|original}` | Download a clip file. |
 | `POST /search` | Semantic moment search over the caller's videos. |
 | `GET /music/search?q&mood&per_page` | Pexels proxy (needs `PEXELS_API_KEY`). |
-| `GET /health` · `GET /telemetry` | Liveness; per-model OpenRouter call/token counters (admins only). |
+| `GET /health` · `GET /health/ready` · `GET /telemetry` | Liveness · readiness (DB, Redis, disk, ffmpeg, OpenRouter key/balance; 503 when not ready) · per-model OpenRouter call/token counters (admins only). |
 
 There are no public static mounts: `file_url`, `thumbnail_url` and
 `source_url` in responses point at `/api/files/...`.
@@ -209,7 +213,8 @@ admins (no quota, no upload caps). CORS uses the explicit `ALLOWED_ORIGINS`
 list, and state-changing requests from a foreign `Origin` get a 403. The deep
 agent's tools never trust LLM-supplied ids: the user id travels in the
 LangGraph `RunnableConfig` (plus a ContextVar backstop) and each tool checks
-ownership; chat threads are `u:{user}:v:{video}`.
+ownership, and that the run's thread is the user's own (`u:{user}:c:{conversation}`
+for a stored conversation; `u:{user}:v:{video}` for clients that send none).
 
 ### Daily query quota
 
@@ -220,6 +225,24 @@ per-IP backstop (`IP_DAILY_QUERY_LIMIT`, default 20) and an optional global
 cap (`DAILY_GLOBAL_QUERY_LIMIT`, default 0 = off; prod sets 100). The client IP is nginx's `X-Real-IP`, trusted only from a private /
 loopback peer. A unit is refunded if the orchestrator raises. Falls back to an
 in-process counter if Redis is unavailable.
+
+### Storage and retention
+
+`services/storage.py`, values in `auth/settings.py`: 3 active uploads and
+1.5 GB (sources + clips) per user, uploads paused for everyone below 5 GB
+free disk. A nightly job (asyncio loop in `main.py`'s lifespan, once per UTC
+day, Redis `SET NX` lock) deletes a source 7 days after upload — the video
+is then *archived*: transcript, moments, chats and clips stay, new clips
+need a re-upload — deletes rendered clips after 30 days, and deletes all
+files of accounts inactive for 60 days (the account stays). Admin and demo
+accounts are exempt.
+
+### Analysis queue and spend caps
+
+One analysis runs at a time (`ANALYSIS_MAX_CONCURRENCY=1`); the rest wait in
+a FIFO line and report `queue_position`. `DAILY_ANALYSIS_MINUTES_LIMIT`
+(default 240) caps the minutes of media non-admins can have analysed per UTC
+day across the whole site, on top of the query quotas above.
 
 ## Frontend
 
@@ -322,9 +345,17 @@ autoclip-ai/
 | `ADMIN_EMAILS` | — | Comma-separated admin accounts. |
 | `ALLOWED_ORIGINS` | `http://localhost:5173,…` | CORS allow-list (never `*`). |
 | `COOKIE_SECURE` | `0` | `1` behind HTTPS → `__Host-session` Secure cookie. |
-| `MAX_VIDEOS_PER_USER` / `MAX_VIDEO_MINUTES_DEMO` | `5` / `60` | Stored items per non-admin / max length in minutes. |
+| `MAX_VIDEOS_PER_USER` / `MAX_VIDEO_MINUTES_DEMO` | `3` / `60` | Active (not archived) uploads per non-admin / max length in minutes. |
 | `VIDEO_MINUTES_CAP_ADMINS` | `1` | Apply the length cap to admins too. |
 | `MAX_UPLOAD_SIZE_MB` | `300` | Upload size cap. |
+| `STORAGE_QUOTA_MB` | `1536` | Per-user storage (sources + clips), non-admins. |
+| `MIN_FREE_DISK_GB` | `5` | Uploads refused (507) below this much free disk. |
+| `SOURCE_RETENTION_DAYS` / `CLIP_RETENTION_DAYS` / `INACTIVE_ACCOUNT_DAYS` | `7` / `30` / `60` | Retention rules (0 disables one). Admin + demo exempt. |
+| `CLEANUP_ENABLED` / `CLEANUP_HOUR_UTC` / `CLEANUP_CHECK_SECONDS` | `1` / `3` / `900` | Nightly cleanup loop. |
+| `ANALYSIS_MAX_CONCURRENCY` | `1` | Analyses running at once; the rest queue. |
+| `DAILY_ANALYSIS_MINUTES_LIMIT` | `240` | Site-wide minutes analysed per UTC day by non-admins; 0 = off. |
+| `READY_MIN_FREE_DISK_GB` / `READY_MIN_OPENROUTER_USD` | `1` / `0` | `/api/health/ready` fails below this disk / at or below this balance. |
+| `READY_OPENROUTER_CACHE_SECONDS` / `READY_OPENROUTER_TIMEOUT` | `300` / `3` | Balance cache and request timeout (a timeout is "unknown", not a failure). |
 | `VISION_STATIC_CHECK` / `VISION_STATIC_FRAMES` / `VISION_STATIC_DIFF` | `1` / `4` / `12` | Static-shot check: send only N frames when a chunk's 24 sampled frames show ≤ N distinct looks (mean abs pixel diff < DIFF on 32x18 grey). |
 | `DEMO_EMAIL` / `DEMO_DAILY_QUERY_LIMIT` | `demo@autoclip.local` / `10` | Shared demo account. |
 | `DAILY_GLOBAL_QUERY_LIMIT` | `0` (off) | Chat messages per UTC day across all visitors. |
@@ -372,8 +403,9 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 build` for the frontend and `compileall` for the backend. On `master` it then
 assumes an AWS role via GitHub OIDC (secret `AWS_DEPLOY_ROLE_ARN`), sends an
 SSM Run Command that does `git reset --hard <sha>` in `/opt/autoclip` and
-rebuilds with the prod overlay, and smoke-tests `/api/health`. No SSH port is
-open. Full setup in [DEPLOY.md](DEPLOY.md).
+rebuilds with the prod overlay, and smoke-tests `/api/health/ready`. No SSH
+port is open. Nightly `pg_dump` → S3 is `backend/scripts/backup_db.sh`
+(cron on the host; not set up yet). Full setup in [DEPLOY.md](DEPLOY.md).
 
 ## Known issues
 
@@ -382,7 +414,8 @@ Found in a full code review (2026-10-01); not yet fixed.
 **Security / public-demo**
 - ~~No authentication or ownership~~ — fixed: accounts, per-user scoping,
   authorised media (see API / Accounts). No email verification yet.
-- Thread history grows unbounded (threads are now per user + video).
+- Thread history grows unbounded (threads are per user + conversation; old
+  per-video threads from before chat history are orphaned, not deleted).
 - Only `/chat/message` is metered — `/search` (paid embeddings), clip
   edit/export (ffmpeg re-encodes) and uploads are not. `ClipUpdate` times are
   unvalidated (negative / inverted / whole-video ranges accepted).
@@ -417,7 +450,7 @@ Found in a full code review (2026-10-01); not yet fixed.
 - Landing scene forces `dpr ≥ 1.5` and preloads all clips — heavy on mobile.
 
 **Infra**
-- Smoke test only checks a static `/api/health`; no rollback on failure.
+- No rollback on a failed deploy (the smoke test now checks `/api/health/ready`).
 - No `uv.lock` committed, so backend builds resolve deps fresh each time.
 - No log rotation, no HSTS/security headers, no gzip/cache headers for
   static assets, backend container runs as root.

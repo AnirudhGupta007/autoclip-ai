@@ -14,16 +14,31 @@ EVALUATION.md, BENCHMARKS.md.
 
 ## Owner's rules (don't re-litigate)
 
-- **Portfolio project, nothing more.** Keep scope small. Keep current limits
-  (500MB upload, ~110-min analysis cap, 60-min cap for non-admin users).
-  No email verification, OAuth, 3-hour support or extra admin features.
+- **Portfolio project, nothing more.** Keep scope small; build the bare
+  minimum first.
+- **Limits: 300 MB / 60 min per upload, for everyone** (admins too, via
+  `VIDEO_MINUTES_CAP_ADMINS=1`). Audio uploads (mp3/m4a/wav/aac/ogg/flac)
+  are supported and become audiograms. No 3-hour support, no email
+  verification, no extra admin features.
+- **Google sign-in is WANTED** (replaces the old "no OAuth" rule). Plan:
+  free hostname `15-206-112-113.sslip.io` (Let's Encrypt cert via the
+  existing acme.sh), authlib code flow + PKCE, `google_sub` column, issue
+  the existing session cookie. **Not built yet — do it together with the
+  owner**, who creates the OAuth client in Google Cloud (redirect
+  `https://15-206-112-113.sslip.io/api/auth/google/callback`, scopes
+  `openid email profile`). Fallback hostname: a free `autoclip.is-a.dev`.
+  Email/password and the demo stay.
 - **OpenRouter for every model call.** No Groq/Whisper/other providers.
-- **Landing page:** keep the existing motion (3D FilmScene scroll), colours
-  (pure black + gold) and fonts (Plus Jakarta Sans + Inter). Improve/add
-  only, never restyle.
+- **Spend nothing without asking:** no domain, no disk resize, no new paid
+  services. Paid OpenRouter runs only above a $10 balance, with
+  `--budget-usd`. Unit tests mock every LLM call.
+- **Landing page:** keep the existing motion (3D FilmScene scroll) and fonts
+  (Plus Jakarta Sans + Inter). Palette is now 2+1: obsidian black, platinum,
+  gold as the accent only.
 - **Never push or merge to `master` without explicit approval** — a push to
   `master` auto-deploys to production (`.github/workflows/deploy.yml`).
-  Work on branch `portfolio-overhaul`.
+  Work on branch `portfolio-overhaul`. Don't touch the prod server, AWS
+  resources or GitHub settings without the owner.
 - No `Co-Authored-By: Claude` trailers in commits, no Claude footer in PRs.
 - **Wild Target (copyrighted film) is eval-only.** Never commit its footage,
   transcript or dialogue quotes; never show it publicly. `reports/` is
@@ -32,69 +47,73 @@ EVALUATION.md, BENCHMARKS.md.
 - The owner likes work split across parallel Opus sub-agents with strict
   file ownership, then integrated and reviewed by the main session.
 
-## Status (as of 2026-10-10)
+## Status (as of 2026-11-10)
 
-**Committed** — `852920d` on `portfolio-overhaul` (not pushed, not live):
-pipeline fixes (transcription 3%→96% coverage, full-chunk frame sampling,
-bounded memory, background analysis + SSE, exact clip lengths, letterbox
-crop, captions, credits excluded), login + per-user isolation (argon2
-sessions, ownership in routes *and* agent tools, X-Accel-Redirect media,
-demo account, Alembic 0001–0002, 47 tests), eval harness
-(`backend/scripts/eval_movie.py`, `evallib/`), ground truth for two videos,
-landing-page portfolio sections, docs.
+Plan: `~/.claude/plans/calm-hatching-church.md` (podcast pivot, real site,
+live with users). Everything below is on `portfolio-overhaul`, **not pushed,
+not live** — production still runs the old code.
 
-**Uncommitted in the working tree** — moment-selection fix (a sub-agent was
-cut off by a usage limit before testing/committing):
-`rag/selection.py` (hybrid candidates → LLM re-rank → diversity filter),
-`services/moment_tagger.py` + `scripts/backfill_moment_tags.py` (category
-tags on moments), `alembic/versions/0003_moment_categories.py`, credits
-skipped during analysis, eval caption-check fix in `evallib/probe.py`,
-`tests/test_selection.py`, plus edits in tools/orchestrator/clip_selector/
-chat router/config. Eval runs with it already happened (below), but its
-tests were never run and the code hasn't been reviewed.
+**Done on the branch:**
 
-**Eval results** (reports in `reports/eval/<slug>/<run>/report.md`, local only):
+- **Phase 0–1 (`a26730c`, `fed747c`):** moment selection (hybrid candidates
+  → LLM re-rank → diversity filter, category tags, migration 0003); podcast
+  pivot — audio → audiogram mp4 (`services/audiogram.py`, `media_kind`,
+  migration 0004), transcript-only chunks for audio, static-shot check (4
+  frames instead of 24), credits detection only ≥ 70 min, 60-min cap for all.
+- **Phase 2 (`5a45ee0`):** podcast ground truth
+  (`backend/eval/podcasts/blocks_russell_peters.json`, CC BY), RAGAS step
+  (`--ragas`, dev-only extra). **The paid eval matrix was not run** (balance
+  below the $10 floor) — only free measurements are in BENCHMARKS.md.
+- **Phase 3 (`dca6959`):** chat history — `conversations`/`messages`
+  (migration 0005), `/api/conversations` CRUD, turns stored by
+  `/api/chat/message` with `conversation_id`, thread `u:{uid}:c:{cid}`,
+  ownership checked in routes and agent tools, demo read-only.
+- **Phase 4 + 7 (frontend commits `60271c3`…`8900040`):** shared header,
+  `/docs`, `/settings`, Library retention dates, Studio sidebar, audio
+  dropzone, 2+1 palette + Apple tokens, landing copy for podcasts.
+  `frontend/API_CONTRACT.md` is the frontend↔backend contract.
+- **Phase 5 (`43ca488`):** 3 active uploads + 1.5 GB per user, 5 GB global
+  disk guard (507), nightly retention (source 7 d → archived, clips 30 d,
+  inactive accounts 60 d; admin + demo exempt) in the `main.py` lifespan
+  with a Redis lock, migration 0006, `GET /api/me/usage`, `DELETE /api/me`.
+- **Phase 8 code (`7167e79`):** one-at-a-time analysis queue with
+  `queue_position` ("#N in line"), `DAILY_ANALYSIS_MINUTES_LIMIT`,
+  `/api/health/ready` (deploy smoke test uses it),
+  `backend/scripts/backup_db.sh` (pg_dump → S3, documented, not set up).
+- **Clip titles (`d0bc780`):** cut at a word boundary, prompt asks for ≤ 7
+  words (old clips keep their cut titles).
+- Backend tests: 119 passing (`backend/tests/`, run inside the backend image).
 
-| | Baseline (old app) | After pipeline fix | + selection fix (Gemini 2.5 Flash) |
-|---|---|---|---|
-| Wild Target hit@3 | 0/6 | 1/6 | **2/6** |
-| Wild Target tag precision | 0.11 | 0.22 | **0.33** |
-| Wild Target transcript coverage | 0.03 | 0.96 | 0.96 |
-| Wild Target moment recall@all | 0.37 | 0.83 | 0.83 |
-| Doctorow hit@3 | – | 0/6 | **2/6** |
-| Doctorow tag precision | – | 0.14 | **0.62** |
-| Doctorow duplicate clips | – | 0.14 | **0.00** |
-
-Full analysis of a 98-min film: ~$0.59, ~20 min. The selection-fix runs
-re-used analysed videos, so their cost/time (~$0.03, ~4 min for 6 queries)
-are not comparable to full runs.
-
-**Model A/B (Wild Target):** `typesafe/jev-router` (a model router on
-OpenRouter) lost to `google/gemini-2.5-flash` as orchestrator + re-ranker:
-hit@3 0/6 vs 2/6, ~3× cost ($0.099 vs $0.034), slower (406s vs 236s). Its
-Doctorow arm was never run. Defaults stay on Gemini 2.5 Flash.
+**Eval results so far** (reports in `reports/eval/<slug>/<run>/report.md`,
+local only): selection fix with Gemini 2.5 Flash — Wild Target hit@3 2/6,
+tag precision 0.33; Doctorow hit@3 2/6, tag precision 0.62, 0 duplicates;
+transcript coverage 0.96. RAGAS (free judge) faithfulness 0.81 / 0.69.
+Details in EVALUATION.md. Known weak spot: ranking for a specific ask
+(hit@3 2/6) — be honest about it on the landing page.
 
 ## Next steps (in order)
 
-1. Review the uncommitted selection-fix code, run `backend/tests/` (incl.
-   `test_selection.py`, `test_auth_isolation.py`, `test_evallib.py`), fix,
-   commit on `portfolio-overhaul`.
-2. Put final numbers into `frontend/src/data/results.json` (`current`, same
-   keys as `baseline`, plus a note naming the model) and a "selection fix +
-   model A/B" section in EVALUATION.md / BENCHMARKS.md. Commit.
-3. Health/monitoring: deep `/api/health/ready` (DB, Redis, disk, ffmpeg,
-   OpenRouter key/balance), frontend healthcheck + autoheal, UptimeRobot,
-   daily canary workflow (tiny CC clip on the live site), deploy smoke test
-   on `/ready` + rollback.
-4. Go live **only when the owner says so**: follow DEPLOY.md §7 (pg_dump,
-   `alembic stamp 0001`, `ADMIN_EMAILS`, sign up the admin immediately,
-   seed the demo with the Doctorow video), then merge to `master`.
-5. Portfolio polish: README GIF, 2-min walkthrough.
-6. Optional: frames vs native-video vision A/B (`VISION_INPUT_MODE`).
-
-Known weak spot: hit@3 is 2/6 per video — moments are found (recall 83–91%)
-but ranking for a specific ask is still modest. Be honest about it on the
-landing page.
+1. **Frontend:** show `queue_position` ("#N in line") from the analysis
+   state/SSE (contract appended in `frontend/API_CONTRACT.md`); the backend
+   already sends it and puts it in the reply text.
+2. **Podcast eval matrix** (Phase 2 exit bar: audio-only ≥ 60% cheaper than
+   full vision, hit@3 no worse) once the OpenRouter balance is above $10.
+   Put real numbers in `results.json`, EVALUATION.md, BENCHMARKS.md.
+3. **Google sign-in (Phase 6) with the owner:** sslip.io cert + nginx
+   `server_name`, OAuth client, authlib flow, migration **0007**
+   `google_sub` (0006 is now storage), `google_linked` on `/api/auth/me`
+   (currently always `false`), mocked callback test.
+4. **Ops the owner must do (AWS, not code):** S3 bucket + instance-role
+   `s3:PutObject` + host cron for `backup_db.sh` (DEPLOY.md §6); a spend
+   limit on the OpenRouter key; UptimeRobot on `/api/health/ready`.
+5. Frontend healthcheck in compose + autoheal; deploy rollback.
+6. Go live **only when the owner says so**: DEPLOY.md §9 (pg_dump first;
+   migrations 0003–0006 apply on deploy; `ADMIN_EMAILS`; sign up the admin
+   immediately; seed the demo with Doctorow). **Doctorow is 61.2 min**, over
+   the 60-min cap: upload it with `VIDEO_MINUTES_CAP_ADMINS=0` set
+   temporarily (then back to `1`), or trim it under 60 min. Then merge to
+   `master`.
+7. Portfolio polish: README GIF, 2-min walkthrough.
 
 ## Local environment
 
@@ -102,9 +121,14 @@ landing page.
   (nginx) and http://127.0.0.1:8000 (backend). Rebuild after backend dep
   changes: `docker compose build backend frontend`.
 - Local admin: `admin@autoclip.dev`; credentials are in the local `.env`
-  (`EVAL_EMAIL` / `EVAL_PASSWORD`, gitignored). Admins skip quotas.
+  (`EVAL_EMAIL` / `EVAL_PASSWORD`, gitignored). Admins skip quotas, the
+  storage quota and retention.
+- Tests: mount the source into the backend image (ffmpeg is only there):
+  `docker run --rm -v "$PWD/backend:/w" -w /w --entrypoint sh autoclip-ai-backend -c "pip install -q --target /tmp/pt pytest && PYTHONPATH=/tmp/pt:/w/src python -m pytest tests -q -p no:cacheprovider"`
 - Analysed videos in the local DB: Wild Target `6d3872df73b1` (new
   pipeline), `4cf75b3d8e2a` (old pipeline); Doctorow `c2b0ab7cda68`.
+  Podcast uploads (not analysed): `6ac4b72bc523` (video), `cd0d82336186`
+  (audio). Local DB is at migration 0006.
 - Source files (not in git): `~/Videos/autoclip-bench/wildtarget.mp4`,
   `~/Videos/autoclip-bench/doctorow_39c3.mp4`.
 - DB backup before the auth migration: `~/autoclip-backups/`.
