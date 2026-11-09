@@ -238,11 +238,13 @@ async def chat_message(msg: ChatMessage, request: Request, response: Response,
     def _run_turn():
         bucket, token = agent_tools.begin_turn()
         user_token = agent_tools.set_current_user(user.id)
+        request_token = agent_tools.set_current_request(message)
         try:
             result = orchestrator.invoke(
                 {"messages": [HumanMessage(content=context_message)]}, run_config,
             )
         finally:
+            agent_tools.reset_current_request(request_token)
             agent_tools.reset_current_user(user_token)
             agent_tools.end_turn(token)
         return result, bucket

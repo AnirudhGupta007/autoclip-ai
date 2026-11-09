@@ -78,7 +78,9 @@ class ClipProbe:
     black_bar_frac: Optional[float] = None   # fraction of frame area cropdetect calls black
     has_ass: Optional[bool] = None           # captions.ass next to the clip
     caption_diff: Optional[float] = None     # mean |final - reframed| in the bottom third (0-255)
+    ass_events: Optional[int] = None         # Dialogue events of captions.ass inside the clip
     captions_visible: Optional[bool] = None
+    caption_evidence: Optional[str] = None   # how captions_visible was decided
     errors: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -136,6 +138,50 @@ def bottom_third_diff(runner: Runner, final: str, reference: str, duration: floa
     return sum(diffs) / len(diffs) if diffs else None
 
 
+_ASS_TIME = re.compile(r"^Dialogue:\s*[^,]*,(\d+):(\d+):(\d+(?:\.\d+)?),(\d+):(\d+):(\d+(?:\.\d+)?),")
+
+
+def parse_ass_events(text: str, duration: float) -> int:
+    """Number of ASS Dialogue events that are on screen inside [0, duration]."""
+    n = 0
+    for line in (text or "").splitlines():
+        m = _ASS_TIME.match(line.strip())
+        if not m:
+            continue
+        h1, m1, s1, h2, m2, s2 = m.groups()
+        a = int(h1) * 3600 + int(m1) * 60 + float(s1)
+        b = int(h2) * 3600 + int(m2) * 60 + float(s2)
+        if b > a and a < duration and b > 0:
+            n += 1
+    return n
+
+
+def ass_events_in_range(runner: Runner, ass_path: str, duration: float) -> Optional[int]:
+    if runner.container:
+        r = runner.run(["cat", ass_path], timeout=20)
+        if r.returncode != 0:
+            return None
+        text = r.stdout
+    else:
+        try:
+            text = Path(ass_path).read_text(errors="replace")
+        except OSError:
+            return None
+    return parse_ass_events(text, duration)
+
+
+def captions_from_ass(has_ass: Optional[bool], events: Optional[int]) -> tuple[Optional[bool], Optional[str]]:
+    """Single-pass renders burn captions.ass straight into final.mp4, and
+    production deletes the .ass when it had to render without captions — so
+    an .ass with events in range means captions were burned in. No .ass is
+    *unknown* (no speech in the window, or caption generation failed)."""
+    if has_ass and events:
+        return True, "ass_events"
+    if has_ass and events == 0:
+        return False, "ass_empty"
+    return None, None
+
+
 def probe_clip(runner: Runner, path: str, deep: bool = True, caption_threshold: float = 2.0) -> ClipProbe:
     p = ClipProbe(path=path)
     try:
@@ -150,14 +196,20 @@ def probe_clip(runner: Runner, path: str, deep: bool = True, caption_threshold: 
         p.width, p.height = v.get("width"), v.get("height")
         p.has_audio = any(s.get("codec_type") == "audio" for s in streams)
         clip_dir = path.rsplit("/", 1)[0]
-        p.has_ass = runner.exists(f"{clip_dir}/captions.ass")
+        ass = f"{clip_dir}/captions.ass"
+        p.has_ass = runner.exists(ass)
+        if p.has_ass and p.duration:
+            p.ass_events = ass_events_in_range(runner, ass, p.duration)
         if deep and p.width and p.height and p.duration:
             p.black_bar_frac = cropdetect_black_fraction(runner, path, p.width, p.height, p.duration)
             ref = f"{clip_dir}/reframed.mp4"
-            if runner.exists(ref):
+            if runner.exists(ref):  # legacy two-pass renders: pixel diff vs the uncaptioned file
                 p.caption_diff = bottom_third_diff(runner, path, ref, p.duration)
                 if p.caption_diff is not None:
                     p.captions_visible = p.caption_diff >= caption_threshold
+                    p.caption_evidence = "pixel_diff_vs_reframed"
+        if p.captions_visible is None:
+            p.captions_visible, p.caption_evidence = captions_from_ass(p.has_ass, p.ass_events)
     except (RuntimeError, OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as e:
         p.errors.append(str(e)[:200])
     return p

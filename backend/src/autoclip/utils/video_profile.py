@@ -114,6 +114,19 @@ def get_profile(video_id: str, video_path: str) -> dict:
         return data
 
 
+def credits_start(video_id: str, video_path: str) -> Optional[float]:
+    """Where the end credits begin (None = none detected / probe failed).
+    Analysis uses it to skip the credits entirely (chunk planning + fusion)."""
+    if not video_id or not video_path:
+        return None
+    try:
+        c = get_profile(video_id, video_path).get("credits_start")
+        return float(c) if c else None
+    except Exception as e:
+        logger.warning("credits_start failed for %s: %s", video_id, e)
+        return None
+
+
 def _speech_bounds(words: list[dict], duration: float) -> tuple[Optional[float], Optional[float]]:
     if not words or duration <= 0:
         return None, None

@@ -2,12 +2,14 @@
 
 Chunks overlap by ~10s, so the same real moment may appear at the end of
 chunk N and the start of chunk N+1. This node consolidates duplicates by:
+  0. Dropping moments inside the detected end credits
   1. Greedy temporal merge (overlap > 50% of the shorter window)
   2. Each moment's transcript is re-sliced from the real word-level
      transcript for its own [start, end] (model-quoted text can be wrong)
   3. Optional embedding dedupe on description + own-window dialogue, only
      between moments whose centres are within FUSION_DEDUPE_WINDOW_SECONDS
      (live: whole-film dedupe on bad shared transcripts collapsed 229 → 52)
+  4. A text-only tagging pass adds categories + a "why" line per moment
 The merged result is the canonical `moment_map` for clip selection.
 """
 from __future__ import annotations
@@ -69,6 +71,17 @@ def global_fusion_node(state: PipelineState) -> dict:
     if not raw:
         return {"moment_map": [], "analysis_complete": True}
 
+    from autoclip.utils.video_profile import credits_start
+    credits = credits_start(state.get("video_id", ""), state.get("video_path", ""))
+    if credits:
+        before = len(raw)
+        raw = [m for m in raw if m.start < credits]
+        if len(raw) != before:
+            logger.info("global_fusion: dropped %d moment(s) inside the end credits (>= %.0fs)",
+                        before - len(raw), credits)
+        if not raw:
+            return {"moment_map": [], "analysis_complete": True}
+
     raw.sort(key=lambda m: (m.start, -m.convergence_score))
 
     merged: list[Moment] = []
@@ -94,6 +107,14 @@ def global_fusion_node(state: PipelineState) -> dict:
         )
     except Exception as e:
         logger.warning("embedding dedupe skipped (non-fatal): %s", e)
+
+    # Text-only category tags + "why it works" (cheap lite-model pass) —
+    # feeds hybrid retrieval and the re-ranker (rag/selection.py).
+    try:
+        from autoclip.services.moment_tagger import tag_moments
+        tag_moments(merged)
+    except Exception as e:
+        logger.warning("moment tagging skipped (non-fatal): %s", e)
 
     merged.sort(key=lambda m: m.convergence_score, reverse=True)
     logger.info("global_fusion: %d raw → %d after temporal merge → %d after embedding dedupe "

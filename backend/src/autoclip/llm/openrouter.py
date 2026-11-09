@@ -172,7 +172,43 @@ def extract_json(text: str) -> Optional[Any]:
     return None
 
 
+def invoke_json(model: ChatOpenAI, schema, prompt: str, label: str) -> Optional[Any]:
+    """One structured-output call that degrades gracefully.
+
+    Tries LangChain structured output (`schema` is a Pydantic model); if the
+    model/provider ignores the schema or the parse fails, falls back to
+    tolerant JSON extraction from the raw text. Returns a plain dict/list
+    (or None) — callers validate the shape themselves, so a router model
+    that answers in prose-wrapped JSON still works.
+    """
+    from autoclip.pipeline import telemetry
+    raw = None
+    try:
+        resp = model.with_structured_output(schema, include_raw=True).invoke(prompt)
+        raw = resp.get("raw")
+        if raw is not None:
+            telemetry.record_openrouter_call(raw, model_label=label)
+        parsed = resp.get("parsed")
+        if parsed is not None:
+            return parsed.model_dump() if hasattr(parsed, "model_dump") else parsed
+    except Exception as e:
+        logger.warning("%s: structured call failed (%s) — retrying as plain JSON", label, str(e)[:200])
+    text = message_text(raw) if raw is not None else ""
+    if not text:
+        try:
+            raw = model.invoke(prompt + "\n\nReply with JSON only.")
+            telemetry.record_openrouter_call(raw, model_label=label)
+            text = message_text(raw)
+        except Exception as e:
+            telemetry.record_failure(label, str(e))
+            return None
+    out = extract_json(text)
+    if out is None:
+        telemetry.record_failure(label, "unparseable output")
+    return out
+
+
 __all__ = [
     "get_chat_model", "get_vision_model", "get_audio_model",
-    "extract_json", "message_text", "finish_reason",
+    "extract_json", "message_text", "finish_reason", "invoke_json",
 ]

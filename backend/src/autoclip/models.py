@@ -122,4 +122,6 @@ class MomentRecord(Base):
     convergence_score = Column(Float, default=0.0)
     modalities_active = Column(Integer, default=0)
     embedding = Column(_EmbeddingColumn, nullable=True)
+    categories = Column(JSON, nullable=True)   # moment_tagger.CATEGORIES (None = not tagged yet)
+    why = Column(Text, nullable=True)          # one-line "why it works"
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

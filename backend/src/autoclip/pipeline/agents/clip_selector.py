@@ -1,11 +1,11 @@
-"""Clip selector node — RAG-driven moment selection + OpenRouter scoring/titles.
+"""Clip selector node — picks moments for a clip request, fits windows, scores.
 
-Replaces the old fixed 5-value style-enum keyword filter with real semantic
-retrieval (autoclip.rag.retriever) over the moment map: `ClipConfig.query`
-(freeform user text, e.g. "roasts a competitor") drives retrieval directly;
-when empty, `ClipConfig.style` is used as the query so old-style requests
-("funny clips") still resolve to something reasonable without RAG-specific
-phrasing.
+Selection (see rag/selection.py): hybrid candidates over the credits-free
+moment map (vector + category tags + keywords) -> one LLM re-rank against
+the user's own request (OPENROUTER_MODEL_RERANK) -> diversity pass (no two
+clips overlapping >30% or with centres within 20s, also vs clips produced in
+earlier turns). `ClipConfig.query` is the agent's search phrase; the user's
+raw message travels in state["user_request"]. Explicit timestamps bypass it.
 """
 from __future__ import annotations
 import logging
@@ -16,7 +16,7 @@ from autoclip.llm.openrouter import get_chat_model
 from autoclip.models import generate_id
 from autoclip.pipeline import telemetry
 from autoclip.pipeline.state import PipelineState, ClipConfig, ProducedClip, Moment, EngagementScores
-from autoclip.rag.retriever import retrieve_moments
+from autoclip.rag import selection as S
 
 logger = logging.getLogger(__name__)
 
@@ -32,36 +32,35 @@ def _in_range(m: Moment, lo: float, hi: float) -> bool:
     return lo <= c <= hi
 
 
-def _select_moment(
-    video_id: str,
-    moment_map: list[Moment],
-    config: ClipConfig,
-    used_ranges: list[tuple],
-    lo: float = 0.0,
-    hi: float = float("inf"),
-) -> Moment | None:
-    """RAG-retrieve the best unused moment matching the user's request."""
+def _effective_query(config: ClipConfig) -> str:
     query = config.query.strip() if config.query else ""
     if not query and config.style and config.style != "any":
         query = f"{config.style} moment"
-    if not query:
-        query = "the most engaging, high-energy moment"
+    return query or "the most engaging, high-energy moment"
 
-    candidates = retrieve_moments(
-        video_id=video_id, query=query, k=10,
-        min_convergence=0.0, exclude_ranges=tuple(used_ranges),
-    )
-    candidates = [m for m in candidates if _in_range(m, lo, hi)]
-    if candidates:
-        return candidates[0]
 
-    # Fallback: retrieval found nothing usable (e.g. empty index) — take the
-    # highest-convergence unused moment from the in-state map directly.
-    for moment in sorted(moment_map, key=lambda m: m.convergence_score, reverse=True):
-        overlap = any(moment.start < e and moment.end > s for s, e in used_ranges)
-        if not overlap and _in_range(moment, lo, hi):
-            return moment
-    return None
+def _rank_moments(moment_map: list[Moment], query: str, request: str, want: int,
+                  lo: float, hi: float, words: Optional[list[dict]] = None,
+                  length: float = 30.0) -> list[tuple[Moment, str]]:
+    """Hybrid candidates (vector + category tags + keywords) over the
+    credits-free moments, then one LLM re-rank against the user's request.
+    Returns (moment, reason) best-first: re-ranked ones, then the rest of the
+    candidate pool in hybrid order (fallback material for the diversity pass)."""
+    pool = [m for m in moment_map if _in_range(m, lo, hi)]
+    if not pool:
+        return []
+    idx = S.hybrid_candidates(pool, f"{request} {query}".strip(), S.embed_query(query))
+    cands = [pool[i] for i in idx]
+    dialogue = None
+    if words:  # judge the clip that would actually be cut, not a 3-8s fragment
+        half = max(5.0, float(length)) / 2
+        dialogue = []
+        for m in cands:
+            c = (m.start + m.end) / 2
+            dialogue.append(" ".join(w["text"] for w in words
+                                     if w["end"] > c - half and w["start"] < c + half))
+    ranked = S.rerank(request, query, cands, want, dialogue)
+    return [(cands[i], why) for i, why in S.order_after_rerank(len(cands), ranked)]
 
 
 def _word_at(words: list[dict], t: float) -> Optional[dict]:
@@ -241,22 +240,36 @@ def run_clip_selector(state: PipelineState) -> dict:
     words = transcript_data.get("words", []) or []
 
     picked: list[tuple[ClipConfig, Moment, float, float, str]] = []
-    for config in clip_configs:
-        if config.moment is not None:
-            in_range = [m for m in moment_map if _in_range(m, lo, hi)] or moment_map
-            moment = min(in_range, key=lambda m: abs(m.start - config.moment))
-        else:
-            moment = _select_moment(video_id, moment_map, config, used_ranges, lo, hi)
-        if moment is None:
-            continue
 
-        clip_start, clip_end = _fit_window(
-            moment, config.length, transcript_data, scene_boundaries, lo, hi
-        )
+    def take(config: ClipConfig, moment: Moment, clip_start: float, clip_end: float) -> None:
         used_ranges.append((clip_start, clip_end))
         clip_words = [w for w in words if w["end"] > clip_start and w["start"] < clip_end]
-        clip_transcript = " ".join(w["text"] for w in clip_words)
-        picked.append((config, moment, clip_start, clip_end, clip_transcript))
+        picked.append((config, moment, clip_start, clip_end, " ".join(w["text"] for w in clip_words)))
+
+    # Explicit timestamps ("clip at 12:30") bypass retrieval.
+    for config in [c for c in clip_configs if c.moment is not None]:
+        in_range = [m for m in moment_map if _in_range(m, lo, hi)] or moment_map
+        moment = min(in_range, key=lambda m: abs(m.start - config.moment))
+        take(config, moment, *_fit_window(moment, config.length, transcript_data, scene_boundaries, lo, hi))
+
+    # Retrieval: one ranking per distinct query, then a diversity pass — no two
+    # clips (in this request or produced earlier) overlap >30% or sit within 20s.
+    request = (state.get("user_request") or "").strip()
+    groups: dict[str, list[ClipConfig]] = {}
+    for config in clip_configs:
+        if config.moment is None:
+            groups.setdefault(_effective_query(config), []).append(config)
+    for query, configs in groups.items():
+        ranked = _rank_moments(moment_map, query, request, len(configs), lo, hi,
+                               words, configs[0].length)
+        if not ranked:  # nothing in range at all
+            continue
+        for config in configs:
+            for moment, _why in ranked:
+                window = _fit_window(moment, config.length, transcript_data, scene_boundaries, lo, hi)
+                if not any(S.conflicts(window, u) for u in used_ranges):
+                    take(config, moment, *window)
+                    break
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         meta = list(pool.map(lambda p: _score_and_title(p[1], p[4] or p[1].transcript), picked))
@@ -279,5 +292,6 @@ def run_clip_selector(state: PipelineState) -> dict:
             caption_style=config.caption_style or "bold_pop",
         ))
 
-    clips.sort(key=lambda c: c.overall_score, reverse=True)
+    # Rank order (the re-ranker's judgement of fit to the request) is kept —
+    # re-sorting by the generic engagement score used to bury the best match.
     return {"clips": clips}

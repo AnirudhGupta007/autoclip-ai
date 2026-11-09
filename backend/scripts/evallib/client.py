@@ -66,23 +66,35 @@ def read_env_key(env_path: Path, name: str = "OPENROUTER_API_KEY") -> Optional[s
 
 class Credits:
     """Reads cumulative OpenRouter usage; deltas between reads = spend.
-    The endpoint lags by a few seconds, so callers should settle() before the
-    final read."""
 
+    Prefers the per-key counter (/api/v1/key -> data.usage): the account-wide
+    /api/v1/credits total also moves when *other* keys in the same
+    org/account spend, which polluted per-query costs. Falls back to the
+    account total if the key endpoint is unavailable. The endpoints lag by a
+    few seconds, so callers should settle() before the final read."""
+
+    KEY_URL = "https://openrouter.ai/api/v1/key"
     URL = "https://openrouter.ai/api/v1/credits"
 
     def __init__(self, key: Optional[str]):
         self.key = key
+        self.source: Optional[str] = None
 
     def usage(self) -> Optional[float]:
         if not self.key:
             return None
-        try:
-            status, _, p = _req(self.URL, headers={"Authorization": f"Bearer {self.key}"}, timeout=20)
-            if status == 200 and isinstance(p, dict):
-                return float(p["data"]["total_usage"])
-        except (OSError, KeyError, TypeError, ValueError):
-            pass
+        h = {"Authorization": f"Bearer {self.key}"}
+        for url, path in ((self.KEY_URL, ("data", "usage")), (self.URL, ("data", "total_usage"))):
+            if self.source and self.source != url:
+                continue  # never mix the two counters within one run
+            try:
+                status, _, p = _req(url, headers=h, timeout=20)
+                if status == 200 and isinstance(p, dict):
+                    v = float(p[path[0]][path[1]])
+                    self.source = url
+                    return v
+            except (OSError, KeyError, TypeError, ValueError):
+                pass
         return None
 
 
@@ -291,6 +303,32 @@ def moments_from_postgres(video_id: str, container: str = PG_CONTAINER, user: st
         return json.loads(r.stdout.strip() or "[]")
     except json.JSONDecodeError:
         return None
+
+
+def reset_video_clips(video_id: str, pg: str = PG_CONTAINER, backend: str = "autoclip-ai-backend-1",
+                      user: str = "autoclip", db: str = "autoclip") -> Optional[str]:
+    """LOCAL STACK ONLY — start an eval arm from a clean slate: delete the
+    video's clips (rows + rendered files) and its chat threads (LangGraph
+    checkpoints), so clips from an earlier run don't block moments via the
+    no-duplicates rule and the agent doesn't see an earlier arm's history.
+    Moments/analysis are untouched. Returns a summary, or None on failure."""
+    if not re.fullmatch(r"[0-9a-zA-Z_-]+", video_id):
+        raise ValueError("bad video id")
+    thread = f"u:%:v:{video_id}"
+    sql = (f"BEGIN; DELETE FROM clips WHERE video_id = '{video_id}'; "
+           + " ".join(f"DELETE FROM {t} WHERE thread_id LIKE '{thread}';"
+                      for t in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"))
+           + " COMMIT;")
+    try:
+        r = subprocess.run(["docker", "exec", pg, "psql", "-U", user, "-d", db, "-At", "-c", sql],
+                           capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            return None
+        subprocess.run(["docker", "exec", backend, "rm", "-rf", f"/app/outputs/{video_id}/clips"],
+                       capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return " ".join(r.stdout.split())
 
 
 def transcript_from_container(video_id: str, container: str = "autoclip-ai-backend-1") -> Optional[dict]:

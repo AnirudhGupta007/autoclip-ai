@@ -110,6 +110,9 @@ def render_clip_assets(
             raise
         logger.warning("render with captions failed for %s — retrying without", clip_id)
         ass_path = None
+        # captions.ass on disk must mean "burned into final.mp4" (the eval
+        # and the Clip row's caption_file rely on it).
+        (out_dir / "captions.ass").unlink(missing_ok=True)
         render_clip(video_path, tmp_path, start, end, crop=crop, scale=scale)
     os.replace(tmp_path, final_path)
     for leftover in ("raw.mp4", "reframed.mp4"):

@@ -41,6 +41,16 @@ def chunk_planner_node(state: PipelineState) -> dict:
         duration = float(info.get("duration", 0.0))
     duration = max(duration, 1.0)
 
+    # Don't spend vision calls on the end credits (utils/video_profile.py
+    # detects them from keyframe luma); global_fusion also drops any moment
+    # that still lands there.
+    from autoclip.utils.video_profile import credits_start
+    credits = credits_start(state.get("video_id", ""), video_path)
+    if credits and 60.0 < credits < duration:
+        logger.info("chunk_planner: end credits from %.0fs — analysing [0, %.0f] of %.0fs",
+                    credits, credits, duration)
+        duration = credits
+
     chunk_len, overlap = CHUNK_LENGTH, min(CHUNK_OVERLAP, CHUNK_LENGTH / 2)
     step = max(1.0, chunk_len - overlap)
     needed = 1 if duration <= chunk_len else math.ceil((duration - overlap) / step)

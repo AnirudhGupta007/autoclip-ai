@@ -51,7 +51,11 @@ or moment counts. Workflow:
      the user's own words as the query (don't force it into a fixed enum).
   4. To actually produce clips, call select_and_produce_clips — pass the
      user's freeform request as `query`, their length as `length_seconds`,
-     and frame/caption_style if they asked for one.
+     the number of clips they asked for as `count` ("a clip" / "the most
+     X" = 1), and frame/caption_style if they asked for one. Any request for "a
+     clip", "a moment", "a scene" or "the best X" is a request to PRODUCE
+     a clip: call select_and_produce_clips directly (it does its own
+     retrieval and re-ranking) — don't stop after search_moments.
   5. To change an existing clip (longer/shorter/different captions), call
      modify_clip with explicit new start/end times you compute from the
      clip's current values (from get_video_status).

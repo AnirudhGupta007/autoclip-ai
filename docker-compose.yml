@@ -51,6 +51,7 @@ services:
       # ─── Models (all via OpenRouter) ─────────────────────
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-google/gemini-2.5-flash}
+      OPENROUTER_MODEL_RERANK: ${OPENROUTER_MODEL_RERANK:-}
       OPENROUTER_MODEL_LITE: ${OPENROUTER_MODEL_LITE:-qwen/qwen3-30b-a3b-instruct-2507}
       OPENROUTER_MODEL_VISION: ${OPENROUTER_MODEL_VISION:-google/gemini-2.5-flash-lite}
       OPENROUTER_MODEL_AUDIO: ${OPENROUTER_MODEL_AUDIO:-google/gemini-2.5-flash-lite}

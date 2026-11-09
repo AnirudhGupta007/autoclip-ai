@@ -94,6 +94,12 @@ def run_live(args, gt: dict, queries: list[dict]) -> tuple[dict, int]:
         if not api.video(video_id):
             raise SystemExit(f"video {video_id} not found at {args.base}")
 
+    if args.fresh:
+        res = C.reset_video_clips(video_id)
+        if res is None:
+            raise SystemExit("--fresh: could not reset clips/chat threads (local docker stack only)")
+        log(f"--fresh: cleared clips + chat threads for {video_id} ({res})")
+
     need = len(queries) * args.runs
     q = api.quota()
     if q and q.get("remaining") is not None and q["remaining"] < need:
@@ -176,8 +182,9 @@ def run_live(args, gt: dict, queries: list[dict]) -> tuple[dict, int]:
     run = {"video_id": video_id, "mode": "live", "source": args.base, "runs": runs, "clips": clips,
            "moments": None, "raw_chunk_moments": None, "chunks": None, "transcript": None,
            "cost": {"total_usd": total,
-                    "note": "OpenRouter credits delta across the whole eval (includes any analysis it triggered). "
-                            "Account-wide: anything else using the same key during the run is counted too."},
+                    "note": "OpenRouter usage delta of the app's API key across the whole eval (includes any analysis "
+                            "it triggered); anything else using the same key during the run is counted too.",
+                    "counter": credits.source},
            "analysis_s": None, "stop_reason": stop_reason}
     return run, exit_code
 
@@ -282,6 +289,9 @@ def main(argv=None) -> int:
     ap.add_argument("--from-results", type=Path,
                     help="score an existing run (dir with run.json/report.json/results.json, or a report.json) "
                          "without sending chat messages")
+    ap.add_argument("--fresh", action="store_true",
+                    help="LOCAL docker stack only: delete the video's existing clips and chat threads first "
+                         "(earlier clips block their moments via the no-duplicates rule)")
     ap.add_argument("--runs", type=int, default=1, help="repeat every query N times (live mode)")
     ap.add_argument("--queries", default="all", help="'all' or comma-separated query ids")
     ap.add_argument("--out", type=Path, default=Path("reports/eval"),

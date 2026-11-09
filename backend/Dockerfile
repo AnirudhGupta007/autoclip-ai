@@ -20,6 +20,7 @@ COPY src/ ./src/
 COPY alembic.ini ./
 COPY alembic/ ./alembic/
 COPY scripts/seed_demo.py ./scripts/seed_demo.py
+COPY scripts/backfill_moment_tags.py ./scripts/backfill_moment_tags.py
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh && mkdir -p /app/uploads /app/outputs
 

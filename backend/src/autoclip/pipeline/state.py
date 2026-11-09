@@ -65,6 +65,11 @@ class Moment:
     description: str
     transcript: str
     embedding: Optional[list[float]] = None  # populated in Phase 2.5
+    # Set by the text-only tagging pass (services/moment_tagger.py) at the end
+    # of analysis: categories from moment_tagger.CATEGORIES + a short
+    # "why it works" line. Both feed hybrid retrieval and the LLM re-rank.
+    categories: list[str] = field(default_factory=list)
+    why: str = ""
 
 
 @dataclass
@@ -146,6 +151,10 @@ class PipelineState(TypedDict, total=False):
     # Time ranges already claimed by existing clips — keeps repeat
     # select_and_produce_clips calls from returning duplicates.
     used_ranges: list[tuple]
+
+    # The user's own chat message for this turn (the re-ranker reads it
+    # alongside the agent's search phrase). Optional.
+    user_request: str
 
     # Produced clips
     clips: Annotated[list[ProducedClip], _replace]

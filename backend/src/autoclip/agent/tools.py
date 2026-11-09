@@ -27,7 +27,7 @@ from autoclip.database import SessionLocal
 from autoclip.models import Video, Clip, MomentRecord
 from autoclip.pipeline.graph import generation_only
 from autoclip.pipeline.state import PipelineState, ClipConfig, Moment
-from autoclip.rag.retriever import retrieve_moments
+from autoclip.rag import selection as S
 from autoclip.services.clip_reprocess import apply_clip_update, ClipUpdateError
 from autoclip.schemas import ClipUpdate
 from autoclip.utils import analysis_jobs
@@ -51,6 +51,20 @@ _recent_lock = threading.Lock()
 # ─── who is this turn for? ──────────────────────────────────────
 _current_user: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar(
     "autoclip_current_user", default=None)
+
+
+# The user's raw chat message for this turn — the clip re-ranker judges
+# candidates against it, not only against the agent's (often terse) query.
+_current_request: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "autoclip_current_request", default="")
+
+
+def set_current_request(text: str) -> contextvars.Token:
+    return _current_request.set((text or "")[:1000])
+
+
+def reset_current_request(token: contextvars.Token) -> None:
+    _current_request.reset(token)
 
 
 def set_current_user(user_id: int) -> contextvars.Token:
@@ -199,23 +213,46 @@ def search_moments(video_id: str, query: str, k: int = 10, config: RunnableConfi
     """Semantically search a video's analyzed moments for ones matching a
     freeform description (e.g. "roasts a competitor", "emotional story
     about failure"). Returns candidate moments with timestamps and scores.
-    Use this to ground clip selection in what's actually in the video
-    before calling select_and_produce_clips, or to answer questions like
-    "what funny moments are in this video?" without producing clips."""
+    Use this to answer questions like "what funny moments are in this
+    video?" without producing clips. It does NOT produce anything: if the
+    user asked for a clip, a moment or a scene ("a moment about X", "a clip
+    where ..."), call select_and_produce_clips instead (it retrieves and
+    re-ranks on its own) — never stop at search results and ask whether to
+    make the clip."""
     if not _owns_video(_user_id(config), video_id):
         return []
-    moments = retrieve_moments(video_id=video_id, query=query, k=k, video_ids=[video_id])
+    db: Session = SessionLocal()
+    try:
+        moments = [_row_to_moment(r) for r in
+                   db.query(MomentRecord).filter(MomentRecord.video_id == video_id).all()]
+    finally:
+        db.close()
+    k = max(1, min(int(k or 10), 30))
+    idx = S.hybrid_candidates(moments, query, S.embed_query(query), limit=k)
     return [
         {
             "start": m.start, "end": m.end, "description": m.description,
-            "transcript": m.transcript, "style_tags": m.style_tags,
-            "convergence_score": m.convergence_score,
+            "transcript": (m.transcript or "")[:400], "categories": m.categories,
+            "why": m.why, "convergence_score": m.convergence_score,
         }
-        for m in moments
+        for m in (moments[i] for i in idx)
     ]
 
 
 _FRAMES = {"9:16", "1:1", "16:9"}
+
+
+def _row_to_moment(r: MomentRecord) -> Moment:
+    emb = getattr(r, "embedding", None)
+    return Moment(
+        start=r.start, end=r.end, visual_energy=r.visual_energy or 0.0,
+        audio_energy=r.audio_energy or 0.0, text_hook_strength=r.text_hook_strength or 0.0,
+        convergence_score=r.convergence_score or 0.0, modalities_active=r.modalities_active or 0,
+        style_tags=list(r.style_tags or []), description=r.description or "",
+        transcript=r.transcript or "",
+        embedding=[float(x) for x in emb] if emb is not None else None,
+        categories=list(getattr(r, "categories", None) or []), why=getattr(r, "why", None) or "",
+    )
 
 
 def _load_json(path, default):
@@ -228,7 +265,7 @@ def _load_json(path, default):
 @tool
 def select_and_produce_clips(
     video_id: str,
-    count: int = 3,
+    count: int = 1,
     length_seconds: int = 30,
     query: str = "",
     frame: str = "9:16",
@@ -246,7 +283,9 @@ def select_and_produce_clips(
     "not_analyzed" (call ingest_and_analyze_video first),
     "no_match" (analyzed, but nothing matched the query). Only "ok" with
     clips_produced > 0 means clips actually exist — report `message` to the
-    user verbatim for any other status. `query` is freeform text
+    user verbatim for any other status. `count` is how many clips the
+    user asked for — "a clip", "the most X", "the best X" mean 1; always pass
+    it explicitly. `query` is freeform text
     describing what kind of clips the user wants (e.g. "funny", "where he
     argues about pricing") — it drives semantic retrieval, not just a fixed
     style enum. `frame` is one of "9:16" (TikTok/Reels), "1:1" (square),
@@ -276,16 +315,7 @@ def select_and_produce_clips(
                     "message": ("This video has no analyzed moments yet, so NO clips were "
                                 "produced. Call ingest_and_analyze_video first, then retry.")}
 
-        moment_map = [
-            Moment(
-                start=r.start, end=r.end, visual_energy=r.visual_energy,
-                audio_energy=r.audio_energy, text_hook_strength=r.text_hook_strength,
-                convergence_score=r.convergence_score, modalities_active=r.modalities_active,
-                style_tags=list(r.style_tags or []), description=r.description or "",
-                transcript=r.transcript or "",
-            )
-            for r in moments_rows
-        ]
+        moment_map = [_row_to_moment(r) for r in moments_rows]
 
         out_dir = video_output_dir(video_id)
         transcript_data = _load_json(out_dir / "transcript.json", {})
@@ -315,6 +345,7 @@ def select_and_produce_clips(
             "transcript_data": transcript_data,
             "scene_boundaries": scene_boundaries,
             "clip_configs": clip_configs,
+            "user_request": _current_request.get(),
             "used_ranges": [
                 (c.start_time, c.end_time)
                 for c in db.query(Clip).filter(Clip.video_id == video_id).all()

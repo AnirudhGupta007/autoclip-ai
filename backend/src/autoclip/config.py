@@ -20,6 +20,9 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 # Deep-agent orchestrator + subagents — needs reliable tool-calling.
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash")
+# Clip-selection re-rank (rag/selection.py): one structured-output call per
+# request ranking ~30 hybrid candidates. Defaults to the orchestrator model.
+OPENROUTER_MODEL_RERANK = os.getenv("OPENROUTER_MODEL_RERANK", "") or OPENROUTER_MODEL
 # Scoring / titles — open-source, cheap, supports structured output.
 OPENROUTER_MODEL_LITE = os.getenv("OPENROUTER_MODEL_LITE", "qwen/qwen3-30b-a3b-instruct-2507")
 # Chunk analysis — cheapest Gemini with image+video input.
