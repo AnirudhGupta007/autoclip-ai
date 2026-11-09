@@ -17,6 +17,7 @@ from autoclip.models import generate_id
 from autoclip.pipeline import telemetry
 from autoclip.pipeline.state import PipelineState, ClipConfig, ProducedClip, Moment, EngagementScores
 from autoclip.rag import selection as S
+from autoclip.utils.text import truncate_words
 
 logger = logging.getLogger(__name__)
 
@@ -178,10 +179,24 @@ Dimensions:
     return scores
 
 
+TITLE_MAX_CHARS = 50   # thumbnails draw the title on one line
+
+
+def _clean_title(raw: str) -> str:
+    """One line, no wrapping quotes, cut at a word boundary. A hard [:50]
+    slice used to leave titles like "... for Lower Ta"."""
+    line = next((ln for ln in (raw or "").splitlines() if ln.strip()), "")
+    line = line.strip().strip('"\'“”‘’*').strip()
+    if line.lower().startswith("title:"):
+        line = line[6:].strip()
+    return truncate_words(line, TITLE_MAX_CHARS)
+
+
 def _generate_title(moment: Moment, transcript: str) -> str:
     """Generate a catchy title for the clip via OpenRouter."""
-    prompt = f"""Generate a catchy, short title (max 50 chars) for this video clip.
-The title should be engaging and describe the key moment.
+    prompt = f"""Write a catchy title for this short video clip.
+Keep it short: at most 7 words and under 45 characters. A complete phrase,
+not a sentence cut off. Engaging, and about the key moment.
 
 Content: {moment.description}
 Transcript excerpt: {transcript[:300]}
@@ -192,9 +207,9 @@ Return ONLY the title text, nothing else."""
     try:
         response = model.invoke(prompt)
         telemetry.record_openrouter_call(response, model_label="lite_title")
-        return response.content.strip().strip('"')[:50]
+        return _clean_title(response.content) or _clean_title(moment.description) or "Untitled clip"
     except Exception:
-        return (moment.description or "Untitled clip")[:50]
+        return _clean_title(moment.description) or "Untitled clip"
 
 
 def _score_and_title(moment: Moment, transcript: str) -> tuple[dict, str]:

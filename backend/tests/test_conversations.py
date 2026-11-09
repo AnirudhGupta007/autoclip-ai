@@ -223,3 +223,36 @@ def test_truncate_words():
     assert truncate_words("a" * 80, 10) == "a" * 9 + "…"
     assert truncate_words("  spaced \n out  ", 60) == "spaced out"
     assert truncate_words("Hello, world, again", 14) == "Hello, world…"
+
+
+def test_clip_titles_are_cut_at_a_word_boundary(monkeypatch):
+    """The old [:50] slice gave "... Mussolini for Lower Ta"."""
+    from types import SimpleNamespace
+    from autoclip.pipeline.agents import clip_selector as CS
+    from autoclip.pipeline.state import Moment
+
+    long = "Libertarians Would Vote for Mussolini for Lower Taxes, Says Doctorow"
+
+    class FakeModel:
+        def __init__(self, text):
+            self.text = text
+
+        def invoke(self, prompt):
+            assert "at most 7 words" in prompt
+            return SimpleNamespace(content=self.text, response_metadata={}, usage_metadata=None)
+
+    m = Moment(start=0, end=10, visual_energy=0, audio_energy=0, text_hook_strength=0,
+               convergence_score=0, modalities_active=1, style_tags=[], description=long, transcript="")
+    monkeypatch.setattr(CS.telemetry, "record_openrouter_call", lambda *a, **k: None)
+    for raw in (f'"{long}"', f"Title: {long}\nAlternative: something else"):
+        monkeypatch.setattr(CS, "get_chat_model", lambda lite=False, raw=raw: FakeModel(raw))
+        t = CS._generate_title(m, "")
+        assert t == "Libertarians Would Vote for Mussolini for Lower…", t
+    monkeypatch.setattr(CS, "get_chat_model", lambda lite=False: FakeModel("Short and sweet"))
+    assert CS._generate_title(m, "") == "Short and sweet"
+
+    class Down:
+        def invoke(self, prompt):
+            raise RuntimeError("no network")
+    monkeypatch.setattr(CS, "get_chat_model", lambda lite=False: Down())
+    assert CS._generate_title(m, "") == "Libertarians Would Vote for Mussolini for Lower…"
