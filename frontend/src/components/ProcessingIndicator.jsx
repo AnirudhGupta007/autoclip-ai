@@ -21,6 +21,7 @@ export default function ProcessingIndicator({ progress, liveClips = [], analysis
     const pct = Math.max(2, Math.min(100, analysis.progress || 0))
     const stage = analysis.stage ? analysis.stage[0].toUpperCase() + analysis.stage.slice(1) : 'Analysing the video'
     const eta = fmtEta(analysis.eta_seconds)
+    const queued = analysis.queue_position >= 1
     return (
       <motion.div
         initial={{ opacity: 0, y: 10 }}
@@ -43,7 +44,12 @@ export default function ProcessingIndicator({ progress, liveClips = [], analysis
                 {analysis.chunks_done || 0} / {analysis.chunks_total} chunks
               </span>
             )}
-            {eta && <span>{eta}</span>}
+            {queued && (
+              <span>
+                <span className="text-gold">#{analysis.queue_position}</span> in line
+              </span>
+            )}
+            {eta && <span>{queued ? `${eta} once it starts` : eta}</span>}
           </div>
 
           <div

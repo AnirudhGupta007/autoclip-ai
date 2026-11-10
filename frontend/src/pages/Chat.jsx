@@ -39,12 +39,20 @@ function fmtLength(seconds) {
   return m ? `${h}h ${m}m` : `${h}h`
 }
 
+// Fallbacks for when the reply has no `detail` (e.g. nginx answered first).
+const STATUS_TEXT = {
+  409: 'You have the most active uploads allowed. Delete one in your Library to upload another.',
+  413: 'That file is too large, or it would go over your storage quota. Delete something in your Library to make room.',
+  429: 'The daily limit is used up. Please try again tomorrow.',
+  507: 'The server is low on disk space, so uploads are paused. Please try again later.',
+}
+
 function errorText(err) {
   if (err.code === 'ECONNABORTED') return 'The request timed out. Please try again.'
   const detail = err.response?.data?.detail
   if (typeof detail === 'string') return detail
   if (Array.isArray(detail) && detail[0]?.msg) return detail[0].msg
-  return err.message || 'Unknown error'
+  return STATUS_TEXT[err.response?.status] || err.message || 'Unknown error'
 }
 
 export default function Chat() {
@@ -144,7 +152,12 @@ export default function Chat() {
       onStatus: (d) => handlersRef.current.onAnalysisState?.(d),
       onAnalysisStarted: (d) =>
         analysisActiveRef.current &&
-        setAnalysis((a) => ({ ...(a || {}), status: 'analyzing', eta_seconds: d.eta_seconds })),
+        setAnalysis((a) => ({
+          ...(a || {}),
+          status: 'analyzing',
+          eta_seconds: d.eta_seconds,
+          queue_position: d.queue_position ?? null,
+        })),
       onAnalysisProgress: (d) =>
         analysisActiveRef.current && setAnalysis((a) => ({ ...(a || {}), ...d, status: 'analyzing' })),
       onAnalysisDone: (d) => handlersRef.current.onAnalysisState?.({ ...d, status: 'analyzed' }),
@@ -233,7 +246,11 @@ export default function Chat() {
       }
     } catch (err) {
       const limited = err.response?.status === 429
-      if (limited) setQuota((q) => ({ ...(q || {}), remaining: 0 }))
+      // The site-wide analysis cap is also a 429, but it doesn't use up the
+      // user's queries; only the per-user limit sends X-Queries-Remaining: 0.
+      if (limited && err.response?.headers?.['x-queries-remaining'] === '0') {
+        setQuota((q) => ({ ...(q || {}), remaining: 0 }))
+      }
       addAssistant(limited ? errorText(err) : `Something went wrong: ${errorText(err)}`)
     } finally {
       sendingRef.current = false
