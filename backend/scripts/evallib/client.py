@@ -234,9 +234,29 @@ class AutoClip:
             raise ApiError(f"upload failed: HTTP {s}: {str(p)[:300]}")
         return p
 
-    def chat(self, video_id: str, message: str, timeout: float = 7200) -> tuple[int, dict, dict]:
-        s, h, p = self._req("/api/chat/message", "POST",
-                       {"message": message, "video_id": video_id}, timeout=timeout)
+    def create_conversation(self, video_id: Optional[str]) -> Optional[str]:
+        """POST /api/conversations; the new id, or None (e.g. the demo account)."""
+        s, _, p = self._req("/api/conversations", "POST", {"video_id": video_id}, timeout=30)
+        return p.get("id") if s == 201 and isinstance(p, dict) else None
+
+    def conversations(self) -> list[dict]:
+        s, _, p = self._req("/api/conversations", timeout=30)
+        return p if s == 200 and isinstance(p, list) else []
+
+    def conversation_messages(self, conversation_id: str) -> Optional[list[dict]]:
+        s, _, p = self._req(f"/api/conversations/{urllib.parse.quote(conversation_id)}/messages", timeout=30)
+        if s != 200:
+            return None
+        if isinstance(p, dict):
+            p = p.get("messages")
+        return p if isinstance(p, list) else None
+
+    def chat(self, video_id: str, message: str, timeout: float = 7200,
+             conversation_id: Optional[str] = None) -> tuple[int, dict, dict]:
+        body = {"message": message, "video_id": video_id}
+        if conversation_id:
+            body["conversation_id"] = conversation_id
+        s, h, p = self._req("/api/chat/message", "POST", body, timeout=timeout)
         if s == 429:
             detail = p.get("detail") if isinstance(p, dict) else p
             raise QuotaExceeded(

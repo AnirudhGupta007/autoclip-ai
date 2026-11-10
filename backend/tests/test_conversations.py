@@ -256,3 +256,48 @@ def test_clip_titles_are_cut_at_a_word_boundary(monkeypatch):
             raise RuntimeError("no network")
     monkeypatch.setattr(CS, "get_chat_model", lambda lite=False: Down())
     assert CS._generate_title(m, "") == "Libertarians Would Vote for Mussolini for Lower…"
+
+
+
+def test_subagent_tool_calls_pass_the_thread_check(pair):
+    """deepagents runs a subagent with its own config ({"ls_agent_type": ...});
+    its tools must still see the parent's thread/user/conversation, or every
+    delegated tool call in a conversation would be refused. Real
+    create_deep_agent + `task` tool, scripted fake models, no network."""
+    import unittest.mock as um
+
+    from deepagents import create_deep_agent
+    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+    from langchain_core.messages import AIMessage
+    from langgraph.checkpoint.memory import MemorySaver
+
+    class Fake(FakeMessagesListChatModel):
+        def bind_tools(self, tools, **kw):
+            return self
+
+    a_id, vid, cid = pair["a_me"]["id"], pair["a_vid"], pair["conv"]["id"]
+    status = agent_tools.get_video_status
+    sub = Fake(responses=[AIMessage(content="", tool_calls=[
+        {"name": status.name, "args": {"video_id": vid}, "id": "s1"}]), AIMessage(content="sub done")])
+    parent = Fake(responses=[AIMessage(content="", tool_calls=[
+        {"name": "task", "args": {"description": "check the video", "subagent_type": "worker"}, "id": "t1"}]),
+        AIMessage(content="done")])
+    agent = create_deep_agent(model=parent, tools=[], checkpointer=MemorySaver(), subagents=[
+        {"name": "worker", "description": "w", "system_prompt": "w", "tools": [status], "model": sub}])
+
+    calls = []
+    real = agent_tools._user_id
+
+    def spy(config):
+        uid = real(config)
+        calls.append((dict((config or {}).get("configurable") or {}), uid))
+        return uid
+
+    with um.patch.object(agent_tools, "_user_id", side_effect=spy):
+        agent.invoke({"messages": [("user", "hi")]}, {"configurable": {
+            "thread_id": f"u:{a_id}:c:{cid}", "user_id": a_id, "conversation_id": cid}})
+    assert calls, "the subagent never called the tool"
+    cfg, uid = calls[0]
+    assert cfg.get("ls_agent_type") == "subagent"          # it really ran inside the subagent
+    assert cfg["thread_id"] == f"u:{a_id}:c:{cid}" and cfg["conversation_id"] == cid
+    assert uid == a_id                                      # ownership check passed

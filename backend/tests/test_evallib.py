@@ -319,3 +319,30 @@ def test_podcast_ground_truth_is_consistent():
             assert set(q["tags"]) & set(next(m for m in gt["moments"] if m["id"] == t)["tags"])
     assert all(0 <= m["start"] < m["end"] <= gt["duration"] for m in gt["moments"])
     json.dumps(gt)
+
+
+def test_client_chats_inside_a_conversation(monkeypatch):
+    """The eval goes through the Studio's path: one conversation per query,
+    its id on every chat turn, then the stored messages are read back."""
+    from evallib.client import AutoClip
+
+    api = AutoClip("http://x", log=lambda *_: None)
+    calls = []
+
+    def fake_req(path, method="GET", body=None, headers=None, timeout=60):
+        calls.append((method, path, body))
+        if path == "/api/conversations" and method == "POST":
+            return 201, {}, {"id": "abc123"}
+        if path.endswith("/messages"):
+            return 200, {}, [{"role": "user"}, {"role": "assistant"}]
+        return 200, {}, {"response": "ok"}
+
+    monkeypatch.setattr(api, "_req", fake_req)
+    cid = api.create_conversation("vid1")
+    assert cid == "abc123"
+    assert calls[0] == ("POST", "/api/conversations", {"video_id": "vid1"})
+    api.chat("vid1", "hi", conversation_id=cid)
+    assert calls[1][2] == {"message": "hi", "video_id": "vid1", "conversation_id": "abc123"}
+    api.chat("vid1", "hi")
+    assert "conversation_id" not in calls[2][2]
+    assert len(api.conversation_messages(cid)) == 2

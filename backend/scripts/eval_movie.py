@@ -121,7 +121,7 @@ def run_live(args, gt: dict, queries: list[dict]) -> tuple[dict, int]:
         for qd in queries:
             rec = {"query_id": qd["id"], "message": qd["message"], "status": None, "elapsed_s": None,
                    "cost_usd": None, "agent_text": None, "clip_ids": [], "returned_ids": [],
-                   "analysis_waited_s": None, "error": None, "turns": 0}
+                   "analysis_waited_s": None, "error": None, "turns": 0, "conversation_id": None}
             recs.append(rec)
             if stop_reason:
                 rec["error"] = f"skipped: {stop_reason}"
@@ -137,14 +137,18 @@ def run_live(args, gt: dict, queries: list[dict]) -> tuple[dict, int]:
             t0 = time.time()
             log(f"[run {run_no}] {qd['id']}: {qd['message']!r}")
             try:
-                _, _, resp = api.chat(video_id, qd["message"])
+                # One conversation per query (thread u:{uid}:c:{cid}): the same
+                # path the Studio uses, and each query starts with no history.
+                cid = api.create_conversation(video_id) if args.conversations else None
+                rec["conversation_id"] = cid
+                _, _, resp = api.chat(video_id, qd["message"], conversation_id=cid)
                 rec["turns"] = 1
                 if C.looks_like_analysis_started(resp):
                     log("  analysis running in the background — polling /api/chat/analysis …")
                     tw = time.time()
                     api.wait_for_analysis(video_id, timeout_s=args.analysis_timeout)
                     rec["analysis_waited_s"] = round(time.time() - tw, 1)
-                    _, _, resp = api.chat(video_id, qd["message"])
+                    _, _, resp = api.chat(video_id, qd["message"], conversation_id=cid)
                     rec["turns"] = 2
                 rec["status"] = 200
             except C.QuotaExceeded as e:
@@ -176,6 +180,23 @@ def run_live(args, gt: dict, queries: list[dict]) -> tuple[dict, int]:
             log(f"  → {len(new)} new clip(s), {len(rec['returned_ids'])} in response, "
                 f"{rec['elapsed_s']}s, ${rec['cost_usd'] or 0:.4f}")
         runs.append({"run": run_no, "queries": recs})
+
+    if args.conversations:
+        stored = {}
+        for r in runs:
+            for rec in r["queries"]:
+                cid = rec.get("conversation_id")
+                if cid:
+                    msgs = api.conversation_messages(cid)
+                    stored[cid] = None if msgs is None else len(msgs)
+                    rec["stored_messages"] = stored[cid]
+        # one user message + one reply per turn: the backend does not store the
+        # automatic re-send after "analysis started" as a second user message
+        expected = {rec["conversation_id"]: 1 + rec["turns"] for r in runs for rec in r["queries"]
+                    if rec.get("conversation_id")}
+        ok = all((stored.get(c) or 0) >= n for c, n in expected.items())
+        log(f"conversations: {len(stored)} created, stored messages {sorted(stored.values(), key=str)} "
+            f"({'all turns persisted' if ok else 'MISSING turns'})")
 
     time.sleep(8)
     u1 = credits.usage()
@@ -342,6 +363,8 @@ def main(argv=None) -> int:
     ap.add_argument("--baseline", type=Path, help="baseline report.json to diff against")
     ap.add_argument("--fail-on-regression", type=float, default=0.05, metavar="DELTA",
                     help="absolute drop on any rate metric that counts as a regression (default 0.05)")
+    ap.add_argument("--no-conversations", dest="conversations", action="store_false",
+                    help="chat on the legacy per-video thread instead of one conversation per query")
     ap.add_argument("--budget-usd", type=float, default=3.0, help="stop sending queries once spend reaches this")
     ap.add_argument("--analysis-timeout", type=float, default=3 * 3600)
     ap.add_argument("--no-probe", action="store_true", help="skip ffprobe/ffmpeg checks")
