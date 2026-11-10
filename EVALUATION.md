@@ -308,31 +308,73 @@ like-for-like comparison.
 `eval_movie.py` reads this format unchanged. Only its wording was
 generalised from "film" to "video".
 
-### Eval matrix (not run yet)
+### Eval matrix (run 2026-11-10)
 
-Each arm is one fresh analysis of the same episode plus the 6 queries. That
-is 3 full analyses, estimated well under the $4 cap from the film's $0.59 for
-98 min. Run them against the local stack:
+Each arm is one fresh analysis of the same 58.3-min episode plus the 6
+queries, against the local stack (vision/transcription
+`google/gemini-2.5-flash-lite`, orchestrator `google/gemini-2.5-flash`).
+Arms 1 and 2 reused the episode's existing unanalysed uploads (`--video-id
+cd0d82336186` / `6ac4b72bc523`); arm 3 uploaded a fresh copy. Every query ran in its own conversation (`POST /api/conversations`, thread
+`u:{uid}:c:{cid}`), the same path the Studio uses.
 
 ```bash
 set -a; source .env; set +a
-E="python3 backend/scripts/eval_movie.py --gt backend/eval/podcasts/blocks_russell_peters.json --base http://localhost --budget-usd 1.3 --ragas"
-# 1. video, full vision: 24 frames per chunk
-VISION_STATIC_CHECK=0 docker compose up -d backend && $E --upload ~/Videos/autoclip-bench/blocks_russell_peters.mp4
+E="~/autoclip-bench-venv/bin/python backend/scripts/eval_movie.py --gt backend/eval/podcasts/blocks_russell_peters.json --base http://localhost --budget-usd 1.3 --ragas --ragas-model nvidia/nemotron-3.5-super-vl:free"
+# 1. audio only: an audiogram, transcript-only chunks
+$E --upload ~/Videos/autoclip-bench/blocks_russell_peters_audio.m4a
 # 2. video, static-frames: the default; static chunks send 4 frames
 docker compose up -d backend && $E --upload ~/Videos/autoclip-bench/blocks_russell_peters.mp4
-# 3. audio only: an audiogram, transcript-only chunks
-$E --upload ~/Videos/autoclip-bench/blocks_russell_peters_audio.m4a
+# 3. video, full vision: 24 frames per chunk
+VISION_STATIC_CHECK=0 docker compose up -d backend && $E --upload ~/Videos/autoclip-bench/blocks_russell_peters.mp4
+docker compose up -d backend   # back to the default
 ```
 
-Exit bar: audio-only cost at least 60% lower than full vision, with hit@3 no
-worse.
+| Arm | Cost (analysis + 6 queries) | Analysis wall | Wall, all queries | hit@3 | Tag precision | Recall@all | Transcript coverage | Images sent | RAGAS faithfulness | RAGAS context precision |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Audio only | $0.110 | 181 s | 386 s | 0.17 (1/6) | 0.62 | 0.95 | 1.00 | 0 | 0.65 | 0.17 |
+| Video, static frames (default) | $0.116 | 391 s | 600 s | 0.50 (3/6) | 0.50 | 0.90 | 1.00 | 188 | 0.45 | 0.50 |
+| Video, full vision | $0.153 | 466 s | 685 s | 0.33 (2/6) | 0.62 | 0.82 | 1.00 | 768 | 0.25 | 0.33 |
 
-**Status (2026-11-10): not run.** The shared OpenRouter balance was $8.89,
-below the $10 floor set for paid runs, so no analysis was started. The only
-podcast numbers measured so far are the ones that cost nothing (see
-BENCHMARKS.md): audiogram encode time, how often the static-shot check fires,
-and the upload path.
+Cost is the OpenRouter usage delta of the key over the whole arm, so it
+includes the analysis, which the first query triggers. RAGAS cost $0.00 (free
+judge). Images are counted by re-running the pipeline's own frame sampling and
+`static_keep` on the video (32 chunks; 29 reduced to 4 frames). This is
+deterministic, so it matches what the run sent. Reports are in
+`reports/eval/blocks_russell_peters/{audio_only,video_static,video_full_vision}/`.
+All 6 queries returned clips in every arm. Length and aspect adherence were
+1.00, with 0 duplicates and captions on every clip.
+
+**Exit bar: not met.** Audio-only cost 28% less than full vision ($0.110 vs
+$0.153), not the 60% the bar asked for, and its hit@3 was worse (1/6 vs 2/6).
+Why the saving is small: with Flash-Lite, images are cheap. Cutting 768 images
+to 188 saved about $0.025, and dropping all of them saved about $0.035 more. The
+rest of the bill is shared by all three arms: transcription of the same 58 min
+of audio, embeddings, the re-ranker and the orchestrator turns. The bar
+assumed vision was most of the cost, and on this model it is not. On time,
+audio-only is the clear win: its analysis is 2.6x faster than full vision
+(181 s vs 466 s), because it skips frame sampling and scene detection.
+
+How far to trust these numbers: this is one run per arm, with 6 queries. A
+hit@3 gap of 1/6 is a single query, and the arms differ on *which* queries
+hit (static: story, advice, money; full: story, hot take; audio: money
+only). That is within the run-to-run noise noted in caveat 5. The static arm
+scoring best on hit@3 is not evidence that fewer frames help. It is noise
+until repeated. The free judge is also noisy. The same clip with the same
+transcript ("1997 meet-up", q_story) scored faithfulness 0.33 in the static
+arm and 0.00 in the full-vision arm. Read the RAGAS columns as a rough signal
+only.
+
+Chat history held up in this first real end-to-end use. All 18 conversations
+were created and listed, and every turn was stored (`GET
+/api/conversations/{id}/messages`: 2 messages per query, 3 for the query that
+waited on analysis, because the automatic re-send is not stored twice). No
+"does not belong" or "is not user" errors appeared in the backend logs. The
+orchestrator never delegated to a subagent in these 18 turns; it called its
+tools directly. The subagent path is therefore covered by a unit test instead
+(`test_subagent_tool_calls_pass_the_thread_check`). That test runs a real
+`create_deep_agent` `task` call with scripted models and shows that the
+subagent's tools inherit `thread_id`, `user_id` and `conversation_id`, so the
+ownership check passes.
 
 ### RAGAS (`--ragas`, dev-only)
 

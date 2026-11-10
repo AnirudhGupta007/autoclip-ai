@@ -47,5 +47,60 @@
     "ragas_faithfulness": 0.69,
     "ragas_context_precision": 0.47,
     "note": "Orchestrator + re-ranker: google/gemini-2.5-flash. Quality numbers from the selection-fix run (2026-10-09); cost/wall per video from the full-analysis run of the same pipeline before the selection fix (2026-10-07: $0.587, 1184s) - the selection-fix run reused that analysis ($0.034 for the 6 queries). RAGAS scored offline on the same clips with a free judge (nvidia/nemotron-3.5-super-vl:free), 2026-11-10."
+  },
+  "podcast_matrix": {
+    "measured": "2026-11-10",
+    "subject": {
+      "label": "a 58-minute two-person podcast (CC BY)",
+      "human_moments": 40,
+      "queries": 6
+    },
+    "arms": [
+      {
+        "label": "Audio only",
+        "cost_usd_per_video": 0.11,
+        "analysis_s": 181,
+        "wall_s_per_video": 386,
+        "hit_at_3": 0.1667,
+        "tag_precision": 0.625,
+        "moment_recall": 0.95,
+        "transcript_coverage": 1.0,
+        "images_sent": 0,
+        "ragas_faithfulness": 0.65,
+        "ragas_context_precision": 0.17
+      },
+      {
+        "label": "Video, static frames (default)",
+        "cost_usd_per_video": 0.116,
+        "analysis_s": 391,
+        "wall_s_per_video": 600,
+        "hit_at_3": 0.5,
+        "tag_precision": 0.5,
+        "moment_recall": 0.9,
+        "transcript_coverage": 1.0,
+        "images_sent": 188,
+        "ragas_faithfulness": 0.45,
+        "ragas_context_precision": 0.5
+      },
+      {
+        "label": "Video, full vision",
+        "cost_usd_per_video": 0.153,
+        "analysis_s": 466,
+        "wall_s_per_video": 685,
+        "hit_at_3": 0.3333,
+        "tag_precision": 0.625,
+        "moment_recall": 0.825,
+        "transcript_coverage": 1.0,
+        "images_sent": 768,
+        "ragas_faithfulness": 0.25,
+        "ragas_context_precision": 0.33
+      }
+    ],
+    "exit_bar": {
+      "rule": "audio-only cost at least 60% below full vision, hit@3 no worse",
+      "met": false,
+      "audio_vs_full_cost_saving": 0.28
+    },
+    "note": "One run per arm, 6 queries: hit@3 gaps are one query and within run-to-run noise. Cost = OpenRouter usage delta over the arm (analysis + 6 queries). RAGAS with a free judge (nvidia/nemotron-3.5-super-vl:free), which is noisy. wall_s_per_video = analysis + all 6 queries."
   }
 }

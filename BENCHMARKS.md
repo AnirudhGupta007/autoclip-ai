@@ -1,12 +1,34 @@
 # Benchmarks
 
+## Podcast eval matrix: paid run, 2026-11-10
+
+One run per arm on the 58.3-min CC BY *Blocks* episode, against the local
+stack, with 6 queries per arm. Each query ran in its own conversation.
+Method, commands and caveats are in EVALUATION.md §5.
+
+| Arm | Cost | Analysis wall | hit@3 | Tag precision | Recall@all | Transcript coverage | Images sent | RAGAS faithfulness / context precision |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Audio only | $0.110 | 181 s | 0.17 | 0.62 | 0.95 | 1.00 | 0 | 0.65 / 0.17 |
+| Video, static frames (default) | $0.116 | 391 s | 0.50 | 0.50 | 0.90 | 1.00 | 188 | 0.45 / 0.50 |
+| Video, full vision | $0.153 | 466 s | 0.33 | 0.62 | 0.82 | 1.00 | 768 | 0.25 / 0.33 |
+
+The exit bar was **not met**. Audio-only is 28% cheaper than full vision,
+short of the 60% the bar asked for, and its hit@3 is lower (1/6 vs 2/6). With
+Gemini 2.5 Flash-Lite, images are a small part of the bill: the 580 images
+the static check drops saved about $0.025. Transcription, embeddings, the
+re-ranker and the agent turns are the same for every arm. Audio-only analysis
+is 2.6x faster. The whole matrix cost $0.38 (balance $8.88 → $8.50); the free
+RAGAS judge cost $0.00. With one run and 6 queries, the hit@3 differences are
+within noise.
+
+---
+
 ## Podcast pivot: local measurements, 2026-11-10 (no paid model calls)
 
 These runs used the 58.3-min CC BY *Blocks* podcast episode
 (`backend/eval/podcasts/`). The backend image was run under `docker run --cpus 2`
-to approximate the EC2 t3a.small. No OpenRouter calls were made: the shared
-balance ($8.89) was below the $10 floor set for paid runs, so the eval matrix
-in EVALUATION.md §5 has not been run yet.
+to approximate the EC2 t3a.small. No OpenRouter calls were made for these. The paid eval matrix
+above was run later the same day, after the owner approved it.
 
 **Audio upload → audiogram** (`services/audiogram.py`):
 
@@ -39,7 +61,7 @@ are reduced at 8, 12, 16 and 20. Most chunks show 2–3 looks (the two
 speakers plus a wide shot). The 3 chunks with 7–10 looks are the cold open
 and about 24–28 min, where a clip from another show (the Roc Nation brunch
 rant) is cut in. Fewer images means less vision
-input; the money saved is unmeasured until the matrix runs.
+input. In the paid matrix above, that saved about $0.025 per episode.
 
 ---
 
