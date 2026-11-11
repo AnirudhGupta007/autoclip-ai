@@ -376,6 +376,90 @@ tools directly. The subagent path is therefore covered by a unit test instead
 subagent's tools inherit `thread_id`, `user_id` and `conversation_id`, so the
 ownership check passes.
 
+### Talk segments (2026-11-12): free dry run, paid eval not run
+
+**Why.** The matrix above found the right material in the pool (recall@all
+0.82–0.95), but ranking and boundaries failed. The vision pass was built for
+films, so it stores 3–17 s fragments (about 8 s on average). The labelled
+podcast moments are 30–90 s stories, rants and pieces of advice. Not one
+stored moment covered 80% of any labelled moment, so every clip was a
+fragment stretched to length. Example: for "spiciest hot take" the app cut
+786–816 s, but the accountant story is 804–850 s. The tags were inflated too:
+`insightful` was on 42–45% of podcast moments and 86% of Doctorow's.
+
+**What changed (`692f5bc`).** `SEGMENT_MODE=auto` stores audio uploads, and
+videos with ≥ 60% static-shot chunks, as 30–90 s transcript segments. The
+cuts fall on sentence and topic boundaries. Each segment carries a one-line
+summary and a payoff sentence, and keeps the vision descriptions as context.
+Tagging is strict: at most 2 tags per segment, and no tag may cover more than
+25% of a video's segments. Re-rank reads the whole segment, and clip windows
+snap to sentences. See `services/talk_segments.py`. The prompts were written
+from the category definitions and were not tuned against the ground-truth
+moments.
+
+**What was measured.** The paid re-evaluation was **not run**. The
+OpenRouter balance was $4.18 at the start, below both the $6.50 stop line
+for this task and the $10 floor in CLAUDE.md. Instead,
+`scripts/resegment.py --dry-run --no-embed` ran on the stored transcripts
+with a free model (`baidu/ernie-5.5-flash-preview:free`, plain-JSON mode,
+throttled to the free tier's 20 requests/min). It cost $0.00 and stored
+nothing; the DB still holds the old moments. Without embeddings and the paid
+re-rank, **hit@3, tag precision and cost per query can't be measured**.
+The table uses a model-free boundary check against the human labels instead:
+the share of labelled moments that one stored unit covers at least 80%, i.e.
+"a clip cut from this unit contains the whole story". Two baselines sit
+alongside: the no-LLM pause fallback, and a dumb fixed grid.
+
+| Video | Units | Mean length | Recall@all | Labelled moments ≥ 80% inside one unit | Largest tag share | Untagged |
+|---|---:|---:|---:|---:|---:|---:|
+| Blocks, audio: before (vision moments) | 139 | 8.4 s | 0.95 | 0.00 | insightful 0.45 | 0.00 |
+| Blocks, audio: segments (free LLM) | 63 | 54.8 s | 1.00 | **0.68** | quotable 0.22 | 0.41 |
+| Blocks, video static: before | 141 | 7.8 s | 0.90 | 0.00 | insightful 0.42 | 0.00 |
+| Blocks, video static: segments (free LLM) | 61 | 56.6 s | 1.00 | **0.53** | quotable 0.25 | 0.33 |
+| Doctorow talk: before | 151 | 9.4 s | 0.91 | 0.00 | insightful 0.86 | 0.00 |
+| Doctorow talk: segments (free LLM) | 66 | 53.2 s | 0.97 | **0.56** | quotable 0.24 | 0.35 |
+| *Baseline: pause fallback, no LLM (Blocks audio / video / Doctorow)* | 57 / 58 / 56 | ~60 s | 1.00 / 1.00 / 0.97 | 0.55 / 0.53 / 0.47 | – | – |
+| *Baseline: fixed 60 s grid (Blocks / Doctorow)* | 62 | 60 s | 1.00 | 0.45 / 0.65 | – | – |
+| *Baseline: fixed 75 s grid (Blocks / Doctorow)* | 50 | 75 s | 1.00 | 0.47 / 0.71 | – | – |
+
+Tag distribution after the cap (segments with the tag / segments). Blocks
+audio: quotable 14, story 12, funny 6, emotional 4, insightful 4,
+hot_take 3, advice 2, heated 1 (of 63). Blocks video: quotable 15,
+insightful 10, story 9, funny 6, emotional 5, hot_take 3, heated 2, advice 2
+(of 61). Doctorow: quotable 16, insightful 16, story 10, hot_take 6,
+funny 3, heated 2, advice 1 (of 66). Before, `hot_take` was on 17–20% of
+podcast moments; now it is on 5%.
+
+Run time on the free tier, with the stored transcript and no re-transcription:
+554–1026 s per video. That is dominated by the free model's reasoning tokens
+(~12k per call) and 429 back-off; one audio window fell back to the pause
+heuristic. On the production lite model this should be ~1 min, but that is
+unmeasured.
+
+**Honest reading.**
+
+- Length and tag inflation are fixed. Units are now clip-sized, and no tag
+  can swamp retrieval.
+- Boundary quality is mixed. On the audio arm, LLM segments beat both
+  baselines (0.68 vs 0.55 pause, 0.45 grid). On the video arm they only tie
+  the pause fallback (0.53). On **Doctorow they are worse than a dumb fixed
+  60 s grid** (0.56 vs 0.65). Much of the "after" gain over "before" is
+  simply that units are now long, and the 80% rule favours longer units: the
+  75 s grid beats the 60 s grid.
+- The motivating example is still split. The audio run cut at 827 s, inside
+  the 804–850 s accountant story.
+- This is a free stand-in model, one run per video, and boundary geometry
+  only. Whether hit@3 moves needs the paid run below.
+
+**Still to run (paid, ~$0.25 est.)** once the balance allows:
+
+1. `docker compose build backend && docker compose up -d backend`. The
+   entrypoint applies 0007.
+2. `python scripts/resegment.py --video-id cd0d82336186 --video-id 6ac4b72bc523 --video-id c2b0ab7cda68`
+   inside the container, on the lite model with embeddings.
+3. The six `eval_movie.py --video-id … --budget-usd 0.5 --ragas --ragas-model nvidia/nemotron-3.5-super-vl:free`
+   runs from the matrix above, plus Doctorow.
+
 ### RAGAS (`--ragas`, dev-only)
 
 The ID-based metrics above stay primary. `--ragas` adds two judge metrics

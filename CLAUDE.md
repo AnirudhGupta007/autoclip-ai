@@ -47,7 +47,7 @@ EVALUATION.md, BENCHMARKS.md.
 - The owner likes work split across parallel Opus sub-agents with strict
   file ownership, then integrated and reviewed by the main session.
 
-## Status (as of 2026-11-10)
+## Status (as of 2026-11-12)
 
 Plan: `~/.claude/plans/calm-hatching-church.md` (podcast pivot, real site,
 live with users). Everything below is on `portfolio-overhaul`, **not pushed,
@@ -62,8 +62,8 @@ not live** — production still runs the old code.
   frames instead of 24), credits detection only ≥ 70 min, 60-min cap for all.
 - **Phase 2 (`5a45ee0`):** podcast ground truth
   (`backend/eval/podcasts/blocks_russell_peters.json`, CC BY), RAGAS step
-  (`--ragas`, dev-only extra). **The paid eval matrix was not run** (balance
-  below the $10 floor) — only free measurements are in BENCHMARKS.md.
+  (`--ragas`, dev-only extra). The paid podcast matrix ran on 2026-11-10
+  (EVALUATION.md §5).
 - **Phase 3 (`dca6959`):** chat history — `conversations`/`messages`
   (migration 0005), `/api/conversations` CRUD, turns stored by
   `/api/chat/message` with `conversation_id`, thread `u:{uid}:c:{cid}`,
@@ -82,33 +82,58 @@ not live** — production still runs the old code.
   `backend/scripts/backup_db.sh` (pg_dump → S3, documented, not set up).
 - **Clip titles (`d0bc780`):** cut at a word boundary, prompt asks for ≤ 7
   words (old clips keep their cut titles).
-- Backend tests: 119 passing (`backend/tests/`, run inside the backend image).
+- **Talk segments (`692f5bc`):** podcasts/talks are stored as 30–90 s
+  transcript segments instead of 3–17 s vision fragments
+  (`services/talk_segments.py`, `SEGMENT_MODE=auto|moments|segments`,
+  default `auto`: audio, or video with ≥ 60% static chunks). Lite-model
+  segmentation per ~10 min with a pause-based fallback, payoff sentence per
+  segment (migration **0007** `moments.payoff`), strict tags (≤ 2, no tag
+  on > 25% of segments), re-rank on the whole segment, clip windows snapped
+  to sentences. `scripts/resegment.py` rebuilds a video's moments from its
+  stored transcript without re-analysis. **Not yet measured end to end** —
+  see Eval results.
+- Backend tests: 141 passing (`backend/tests/`, run inside the backend image).
 
 **Eval results so far** (reports in `reports/eval/<slug>/<run>/report.md`,
 local only): selection fix with Gemini 2.5 Flash — Wild Target hit@3 2/6,
 tag precision 0.33; Doctorow hit@3 2/6, tag precision 0.62, 0 duplicates;
 transcript coverage 0.96. RAGAS (free judge) faithfulness 0.81 / 0.69.
-Details in EVALUATION.md. Known weak spot: ranking for a specific ask
-(hit@3 2/6) — be honest about it on the landing page.
+Podcast matrix (2026-11-10, Blocks episode, vision moments): hit@3 audio
+1/6, video static 3/6, full vision 2/6; recall@all 0.82–0.95. The exit bar
+was not met (audio only 28% cheaper, not 60%). The diagnosis: stored moments
+were 3–17 s fragments of 30–90 s stories, and tags were inflated
+(`insightful` on 42–86%). The talk-segments fix is the answer to that. It was
+only dry-run on a free model ($0, balance $4.18): units 8 s → 55 s, labelled
+moments fully inside one unit 0.00 → 0.53–0.68, max tag share ≤ 0.25. But on
+Doctorow the LLM boundaries lose to a fixed 60 s grid (0.56 vs 0.65), and
+**hit@3 is unmeasured**. Details in EVALUATION.md. Known weak spot: ranking
+for a specific ask. Be honest about it on the landing page, and the owner
+does not want podcast numbers on the landing page.
 
 ## Next steps (in order)
 
 1. **Frontend:** show `queue_position` ("#N in line") from the analysis
    state/SSE (contract appended in `frontend/API_CONTRACT.md`); the backend
    already sends it and puts it in the reply text.
-2. **Podcast eval matrix** (Phase 2 exit bar: audio-only ≥ 60% cheaper than
-   full vision, hit@3 no worse) once the OpenRouter balance is above $10.
-   Put real numbers in `results.json`, EVALUATION.md, BENCHMARKS.md.
+2. **Paid re-eval of talk segments** once the OpenRouter balance is above
+   $10 (~$0.25): rebuild the backend image (0007 applies), then
+   `scripts/resegment.py` for `cd0d82336186`, `6ac4b72bc523` and
+   `c2b0ab7cda68`, then the 6 `eval_movie.py --video-id … --budget-usd 0.5`
+   runs per video (EVALUATION.md §5, "Still to run"). Update
+   `results.json` → `podcast_matrix`, EVALUATION.md and BENCHMARKS.md. If
+   hit@3 doesn't improve, consider `SEGMENT_MODE=moments` as the default for
+   video, or fixed overlapping windows: the dry run says a fixed grid is a
+   strong boundary baseline.
 3. **Google sign-in (Phase 6) with the owner:** sslip.io cert + nginx
-   `server_name`, OAuth client, authlib flow, migration **0007**
-   `google_sub` (0006 is now storage), `google_linked` on `/api/auth/me`
+   `server_name`, OAuth client, authlib flow, migration **0008**
+   `google_sub` (0007 is now `moments.payoff`), `google_linked` on `/api/auth/me`
    (currently always `false`), mocked callback test.
 4. **Ops the owner must do (AWS, not code):** S3 bucket + instance-role
    `s3:PutObject` + host cron for `backup_db.sh` (DEPLOY.md §6); a spend
    limit on the OpenRouter key; UptimeRobot on `/api/health/ready`.
 5. Frontend healthcheck in compose + autoheal; deploy rollback.
 6. Go live **only when the owner says so**: DEPLOY.md §9 (pg_dump first;
-   migrations 0003–0006 apply on deploy; `ADMIN_EMAILS`; sign up the admin
+   migrations 0003–0007 apply on deploy; `ADMIN_EMAILS`; sign up the admin
    immediately; seed the demo with Doctorow). **Doctorow is 61.2 min**, over
    the 60-min cap: upload it with `VIDEO_MINUTES_CAP_ADMINS=0` set
    temporarily (then back to `1`), or trim it under 60 min. Then merge to
@@ -127,8 +152,9 @@ Details in EVALUATION.md. Known weak spot: ranking for a specific ask
   `docker run --rm -v "$PWD/backend:/w" -w /w --entrypoint sh autoclip-ai-backend -c "pip install -q --target /tmp/pt pytest && PYTHONPATH=/tmp/pt:/w/src python -m pytest tests -q -p no:cacheprovider"`
 - Analysed videos in the local DB: Wild Target `6d3872df73b1` (new
   pipeline), `4cf75b3d8e2a` (old pipeline); Doctorow `c2b0ab7cda68`.
-  Podcast uploads (not analysed): `6ac4b72bc523` (video), `cd0d82336186`
-  (audio). Local DB is at migration 0006.
+  Podcast uploads (analysed in the 2026-11-10 matrix, still the old vision
+  moments): `6ac4b72bc523` (video), `cd0d82336186` (audio). Local DB is at
+  migration 0007.
 - Source files (not in git): `~/Videos/autoclip-bench/wildtarget.mp4`,
   `~/Videos/autoclip-bench/doctorow_39c3.mp4`.
 - DB backup before the auth migration: `~/autoclip-backups/`.

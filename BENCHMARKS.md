@@ -1,5 +1,25 @@
 # Benchmarks
 
+## Talk segments: free dry run, 2026-11-12 ($0.00, paid eval not run)
+
+Podcasts and talks are now stored as 30–90 s transcript segments instead of
+the old ~8 s vision fragments (`SEGMENT_MODE=auto`, EVALUATION.md §5). The
+balance ($4.18) was below the spend floor, so this is a dry run on a free
+model with the stored transcripts. No embeddings were computed and no queries
+ran: **hit@3 and tag precision were not measured.**
+
+| Video | Mean unit length (before → after) | Labelled moments ≥ 80% inside one unit | Largest tag share | Fixed 60 s grid, same check |
+|---|---:|---:|---:|---:|
+| Blocks podcast, audio | 8.4 s → 54.8 s | 0.00 → 0.68 | insightful 0.45 → quotable 0.22 | 0.45 |
+| Blocks podcast, video (static) | 7.8 s → 56.6 s | 0.00 → 0.53 | insightful 0.42 → quotable 0.25 | 0.45 |
+| Doctorow talk | 9.4 s → 53.2 s | 0.00 → 0.56 | insightful 0.86 → quotable 0.24 | 0.65 |
+
+Units are now clip-sized and the tag cap holds. The LLM boundaries beat a
+fixed grid on the podcast audio, but lose to it on Doctorow, so topic-aware
+cutting is not yet shown to help in general.
+
+---
+
 ## Podcast eval matrix: paid run, 2026-11-10
 
 One run per arm on the 58.3-min CC BY *Blocks* episode, against the local

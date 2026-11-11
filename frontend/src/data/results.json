@@ -101,6 +101,42 @@
       "met": false,
       "audio_vs_full_cost_saving": 0.28
     },
-    "note": "One run per arm, 6 queries: hit@3 gaps are one query and within run-to-run noise. Cost = OpenRouter usage delta over the arm (analysis + 6 queries). RAGAS with a free judge (nvidia/nemotron-3.5-super-vl:free), which is noisy. wall_s_per_video = analysis + all 6 queries."
+    "note": "One run per arm, 6 queries: hit@3 gaps are one query and within run-to-run noise. Cost = OpenRouter usage delta over the arm (analysis + 6 queries). RAGAS with a free judge (nvidia/nemotron-3.5-super-vl:free), which is noisy. wall_s_per_video = analysis + all 6 queries.",
+    "segments_dry_run": {
+      "measured": "2026-11-12",
+      "note": "Transcript segments (SEGMENT_MODE=auto), free-model dry run on stored transcripts, $0.00. No embeddings or queries: hit@3, tag precision and cost per query not measured. covered_80 = share of labelled moments that one stored unit covers >= 80%.",
+      "rows": [
+        {
+          "label": "Podcast, audio",
+          "mean_len_before_s": 8.4,
+          "mean_len_after_s": 54.8,
+          "covered_80_before": 0.0,
+          "covered_80_after": 0.68,
+          "covered_80_fixed_60s_grid": 0.45,
+          "max_tag_share_before": 0.45,
+          "max_tag_share_after": 0.22
+        },
+        {
+          "label": "Podcast, video (static frames)",
+          "mean_len_before_s": 7.8,
+          "mean_len_after_s": 56.6,
+          "covered_80_before": 0.0,
+          "covered_80_after": 0.53,
+          "covered_80_fixed_60s_grid": 0.45,
+          "max_tag_share_before": 0.42,
+          "max_tag_share_after": 0.25
+        },
+        {
+          "label": "Talk (Doctorow)",
+          "mean_len_before_s": 9.4,
+          "mean_len_after_s": 53.2,
+          "covered_80_before": 0.0,
+          "covered_80_after": 0.56,
+          "covered_80_fixed_60s_grid": 0.65,
+          "max_tag_share_before": 0.86,
+          "max_tag_share_after": 0.24
+        }
+      ]
+    }
   }
 }
