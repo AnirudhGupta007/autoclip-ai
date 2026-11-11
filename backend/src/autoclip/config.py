@@ -68,6 +68,26 @@ VISION_STATIC_CHECK = os.getenv("VISION_STATIC_CHECK", "1").strip().lower() in {
 VISION_STATIC_FRAMES = int(os.getenv("VISION_STATIC_FRAMES", "4"))
 VISION_STATIC_DIFF = float(os.getenv("VISION_STATIC_DIFF", "12"))
 
+# Talk segments (services/talk_segments.py). Podcasts and talks are cut into
+# 30-90s transcript segments on sentence/topic boundaries instead of the
+# vision model's 3-17s "moments" (a film beat is visual; a podcast moment is
+# a whole story or argument).
+#   auto     — segments for audio uploads, and for video when at least
+#              SEGMENT_STATIC_FRAC of the chunks are static shots
+#   segments — always segments (vision output is kept as context)
+#   moments  — the old per-chunk vision moments
+SEGMENT_MODE = os.getenv("SEGMENT_MODE", "auto").strip().lower()
+SEGMENT_MIN_SECONDS = float(os.getenv("SEGMENT_MIN_SECONDS", "30"))
+SEGMENT_MAX_SECONDS = float(os.getenv("SEGMENT_MAX_SECONDS", "90"))
+SEGMENT_STATIC_FRAC = float(os.getenv("SEGMENT_STATIC_FRAC", "0.6"))
+# Transcript window per segmentation call (sequential; the last, possibly
+# unfinished segment of a window is re-read at the start of the next one).
+SEGMENT_WINDOW_SECONDS = float(os.getenv("SEGMENT_WINDOW_SECONDS", "600"))
+# Text-only model for segmentation + strict tagging; defaults to the lite model.
+OPENROUTER_MODEL_SEGMENT = os.getenv("OPENROUTER_MODEL_SEGMENT", "") or OPENROUTER_MODEL_LITE
+# No category may cover more than this share of a video's segments.
+SEGMENT_TAG_MAX_SHARE = float(os.getenv("SEGMENT_TAG_MAX_SHARE", "0.25"))
+
 # Global fusion embedding dedupe (pipeline/agents/global_fusion.py).
 FUSION_DEDUPE_THRESHOLD = float(os.getenv("FUSION_DEDUPE_THRESHOLD", "0.92"))
 FUSION_DEDUPE_WINDOW_SECONDS = float(os.getenv("FUSION_DEDUPE_WINDOW_SECONDS", "180"))

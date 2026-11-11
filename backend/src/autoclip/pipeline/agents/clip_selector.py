@@ -17,6 +17,7 @@ from autoclip.models import generate_id
 from autoclip.pipeline import telemetry
 from autoclip.pipeline.state import PipelineState, ClipConfig, ProducedClip, Moment, EngagementScores
 from autoclip.rag import selection as S
+from autoclip.services.talk_segments import is_segment, sentences, fit_segment
 from autoclip.utils.text import truncate_words
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,9 @@ def _rank_moments(moment_map: list[Moment], query: str, request: str, want: int,
         half = max(5.0, float(length)) / 2
         dialogue = []
         for m in cands:
+            if is_segment(m):  # a talk segment: its whole text (payoff included)
+                dialogue.append(m.transcript or "")
+                continue
             c = (m.start + m.end) / 2
             dialogue.append(" ".join(w["text"] for w in words
                                      if w["end"] > c - half and w["start"] < c + half))
@@ -102,6 +106,17 @@ def _fit_window(
 
     def ok(s: float, e: float) -> bool:
         return s >= lo and e <= hi and abs((e - s) - target) <= tol
+
+    if is_segment(moment):
+        # Talk segment: cut on sentence starts/ends — a sub-window ending on
+        # the payoff when the ask is shorter, adjacent sentences when longer.
+        win = fit_segment(moment, target, sentences(transcript_data), tol, lo, hi)
+        if win and ok(*win):
+            return round(win[0], 3), round(win[1], 3)
+        # no sentence-aligned fit: a window ending on the payoff, word-snapped below
+        if moment.payoff:
+            moment = Moment(**{**moment.__dict__, "start": moment.payoff - target / 2,
+                               "end": moment.payoff - target / 2 + 0.001})
 
     center = (moment.start + moment.end) / 2
     start = min(max(center - target / 2, lo), hi - target)
@@ -265,7 +280,11 @@ def run_clip_selector(state: PipelineState) -> dict:
     for config in [c for c in clip_configs if c.moment is not None]:
         in_range = [m for m in moment_map if _in_range(m, lo, hi)] or moment_map
         moment = min(in_range, key=lambda m: abs(m.start - config.moment))
-        take(config, moment, *_fit_window(moment, config.length, transcript_data, scene_boundaries, lo, hi))
+        anchor = moment
+        if is_segment(moment):  # the asked-for time, not the segment's payoff
+            anchor = Moment(**{**moment.__dict__, "start": float(config.moment),
+                               "end": float(config.moment), "style_tags": []})
+        take(config, moment, *_fit_window(anchor, config.length, transcript_data, scene_boundaries, lo, hi))
 
     # Retrieval: one ranking per distinct query, then a diversity pass — no two
     # clips (in this request or produced earlier) overlap >30% or sit within 20s.

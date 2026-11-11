@@ -66,9 +66,51 @@ def _attach_own_transcripts(moments: list[Moment], transcript_data: dict) -> Non
             m.transcript = own[:1000]
 
 
+def segment_moment_map(state: PipelineState, context: list[Moment] = ()) -> list[Moment]:
+    """Talk content: 30-90s transcript segments instead of vision moments
+    (services/talk_segments.py), embedded on summary + full text, strictly
+    tagged. `context` = the vision moments, kept as on-screen descriptions."""
+    from autoclip.services.talk_segments import build_segments
+    from autoclip.services.embeddings import embed_moments
+    from autoclip.services.moment_tagger import tag_segments
+
+    segments = build_segments(state.get("transcript_data") or {}, context)
+    from autoclip.utils.video_profile import credits_start
+    credits = credits_start(state.get("video_id", ""), state.get("video_path", ""),
+                            state.get("media_kind") or "video")
+    if credits:
+        segments = [m for m in segments if m.start < credits]
+    try:
+        embed_moments(segments)
+    except Exception as e:
+        logger.warning("segment embedding skipped (non-fatal): %s", e)
+    try:
+        tag_segments(segments)
+    except Exception as e:
+        logger.warning("segment tagging skipped (non-fatal): %s", e)
+    return segments
+
+
+def _finish(state: PipelineState, moments: list[Moment]) -> dict:
+    video_id = state.get("video_id")
+    if video_id:
+        events.publish_moments(video_id, moments)
+    return {"moment_map": moments, "analysis_complete": True}
+
+
+def talk_segmenter_node(state: PipelineState) -> dict:
+    """Audio uploads in segment mode: no chunk analysis at all, the transcript
+    is the whole input."""
+    segments = segment_moment_map(state)
+    segments.sort(key=lambda m: m.convergence_score, reverse=True)
+    return _finish(state, segments)
+
+
 def global_fusion_node(state: PipelineState) -> dict:
     raw = list(state.get("moment_map_raw") or [])
-    if not raw:
+    from autoclip.services.talk_segments import use_segments
+    segment_mode = use_segments(state.get("media_kind") or "video", state.get("chunk_static") or [])
+    if not raw and not segment_mode:
         return {"moment_map": [], "analysis_complete": True}
 
     from autoclip.utils.video_profile import credits_start
@@ -80,7 +122,7 @@ def global_fusion_node(state: PipelineState) -> dict:
         if len(raw) != before:
             logger.info("global_fusion: dropped %d moment(s) inside the end credits (>= %.0fs)",
                         before - len(raw), credits)
-        if not raw:
+        if not raw and not segment_mode:
             return {"moment_map": [], "analysis_complete": True}
 
     raw.sort(key=lambda m: (m.start, -m.convergence_score))
@@ -98,6 +140,14 @@ def global_fusion_node(state: PipelineState) -> dict:
 
     n_temporal = len(merged)
     _attach_own_transcripts(merged, state.get("transcript_data") or {})
+
+    if segment_mode:
+        flags = state.get("chunk_static") or []
+        logger.info("global_fusion: talk content (%d/%d chunks static) — %d vision moments kept "
+                    "as context for transcript segments", sum(flags), len(flags), len(merged))
+        segments = segment_moment_map(state, merged)
+        segments.sort(key=lambda m: m.convergence_score, reverse=True)
+        return _finish(state, segments)
 
     # Embedding dedupe (Phase 2.5) — temporally local only.
     try:
@@ -122,8 +172,4 @@ def global_fusion_node(state: PipelineState) -> dict:
                 "(threshold=%.2f, window=%.0fs)", len(raw), n_temporal, len(merged),
                 FUSION_DEDUPE_THRESHOLD, FUSION_DEDUPE_WINDOW_SECONDS)
 
-    video_id = state.get("video_id")
-    if video_id:
-        events.publish_moments(video_id, merged)
-
-    return {"moment_map": merged, "analysis_complete": True}
+    return _finish(state, merged)

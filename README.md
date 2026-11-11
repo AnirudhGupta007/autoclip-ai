@@ -357,6 +357,9 @@ autoclip-ai/
 | `READY_MIN_FREE_DISK_GB` / `READY_MIN_OPENROUTER_USD` | `1` / `0` | `/api/health/ready` fails below this disk / at or below this balance. |
 | `READY_OPENROUTER_CACHE_SECONDS` / `READY_OPENROUTER_TIMEOUT` | `300` / `3` | Balance cache and request timeout (a timeout is "unknown", not a failure). |
 | `VISION_STATIC_CHECK` / `VISION_STATIC_FRAMES` / `VISION_STATIC_DIFF` | `1` / `4` / `12` | Static-shot check: send only N frames when a chunk's 24 sampled frames show ≤ N distinct looks (mean abs pixel diff < DIFF on 32x18 grey). |
+| `SEGMENT_MODE` | `auto` | `auto`: podcasts/talks (audio uploads, or video where ≥ `SEGMENT_STATIC_FRAC` (0.6) of chunks are static shots) are stored as 30–90 s transcript segments on sentence/topic boundaries, with vision descriptions kept as context; `segments`: always; `moments`: the per-chunk vision moments. |
+| `SEGMENT_MIN_SECONDS` / `SEGMENT_MAX_SECONDS` / `SEGMENT_WINDOW_SECONDS` | `30` / `90` / `600` | Segment length bounds; transcript per segmentation call. |
+| `OPENROUTER_MODEL_SEGMENT` / `SEGMENT_TAG_MAX_SHARE` | lite model / `0.25` | Text-only model for segmentation + strict tagging (≤ 2 tags per segment); no tag may cover more than this share of a video's segments. |
 | `DEMO_EMAIL` / `DEMO_DAILY_QUERY_LIMIT` | `demo@autoclip.local` / `10` | Shared demo account. |
 | `DAILY_GLOBAL_QUERY_LIMIT` | `0` (off) | Chat messages per UTC day across all visitors. |
 | `CHUNK_LENGTH_SECONDS` | `120` | Analysis chunk size. |

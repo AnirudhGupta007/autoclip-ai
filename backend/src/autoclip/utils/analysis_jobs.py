@@ -436,7 +436,7 @@ def _run_pipeline(video_id: str) -> None:
                 pct = 20 + int(72 * chunks_done / max(1, chunks_total))
                 _progress_event(video_id, duration, stage="analysing chunks", progress=min(pct, 92),
                                 chunks_done=chunks_done, chunks_total=chunks_total)
-            elif node == "global_fusion":
+            elif node in ("global_fusion", "talk_segmenter"):
                 moments = data.get("moment_map")
                 _progress_event(video_id, duration, stage="ranking moments", progress=94)
             elif node == "analysis" and moments is None:

@@ -28,6 +28,8 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
+SEGMENT_TAG = "segment"      # services/talk_segments.SEGMENT_TAG (no import: keeps this module pure)
+SEGMENT_SAID_CHARS = 1200    # ~75s of speech; 50 candidates stay under ~20k prompt tokens
 MAX_OVERLAP_FRAC = 0.30
 MIN_CENTRE_GAP_S = 20.0
 N_VECTOR, N_TAG, N_KEYWORD, N_CANDIDATES = 25, 25, 10, 50
@@ -180,10 +182,14 @@ def rerank_prompt(request: str, query: str, cands: Sequence, want: int,
     for n, m in enumerate(cands, 1):
         cats = ", ".join(sorted(moment_categories(m))) or "-"
         said = dialogue[n - 1] if dialogue is not None else (getattr(m, "transcript", "") or "")
-        said = said.replace("\n", " ").strip()[:400]
+        seg = SEGMENT_TAG in (getattr(m, "style_tags", None) or [])
+        # Talk segments are judged on their whole text (a story's payoff is
+        # at its end); vision moments on the clip window around them.
+        said = said.replace("\n", " ").strip()[:SEGMENT_SAID_CHARS if seg else 400]
+        about = (m.description or "").replace("\n", " ").strip()[:320 if seg else 220]
         why = (getattr(m, "why", "") or "").strip()
         rows.append(f"[{n}] {_fmt_t(m.start)}-{_fmt_t(m.end)} | tags: {cats}\n"
-                    f"    SEEN: {(m.description or '').strip()[:220]}\n"
+                    f"    {'ABOUT' if seg else 'SEEN'}: {about}\n"
                     f"    SAID: {said or '(no dialogue)'}" + (f"\n    WHY: {why}" if why else ""))
     ask = request.strip() if request and request.strip() else query
     extra = f'\nSearch phrase chosen by the assistant: "{query}"' if query and query != ask else ""
@@ -192,8 +198,9 @@ def rerank_prompt(request: str, query: str, cands: Sequence, want: int,
 
 User's request: "{ask}"{extra}
 
-Candidates (time = the analysed moment; SEEN = what is on screen there; SAID =
-dialogue of the clip that would be cut around it; tags may be wrong):
+Candidates (time = the analysed moment or segment; SEEN = what is on screen
+there; ABOUT = a segment's summary; SAID = dialogue of the clip that would be
+cut around it, or the whole segment; tags may be wrong):
 {chr(10).join(rows)}
 
 Rank the {k} candidates that best satisfy the request, best first. Judge the

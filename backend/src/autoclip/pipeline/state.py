@@ -70,6 +70,10 @@ class Moment:
     # "why it works" line. Both feed hybrid retrieval and the LLM re-rank.
     categories: list[str] = field(default_factory=list)
     why: str = ""
+    # Talk segments only (services/talk_segments.py): end time of the
+    # sentence where the point lands — clip windows shorter than the segment
+    # end on it.
+    payoff: Optional[float] = None
 
 
 @dataclass
@@ -138,6 +142,10 @@ class PipelineState(TypedDict, total=False):
 
     # Per-chunk outputs — fan-in via operator.add reducer
     moment_map_raw: Annotated[list[Moment], operator.add]
+
+    # One flag per analysed chunk: its frames were a static shot (talk
+    # content). global_fusion switches to transcript segments on these.
+    chunk_static: Annotated[list[bool], operator.add]
 
     # Global fusion output
     moment_map: Annotated[list[Moment], _replace]

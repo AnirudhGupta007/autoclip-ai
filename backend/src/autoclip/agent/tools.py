@@ -299,6 +299,7 @@ def _row_to_moment(r: MomentRecord) -> Moment:
         transcript=r.transcript or "",
         embedding=[float(x) for x in emb] if emb is not None else None,
         categories=list(getattr(r, "categories", None) or []), why=getattr(r, "why", None) or "",
+        payoff=getattr(r, "payoff", None),
     )
 
 

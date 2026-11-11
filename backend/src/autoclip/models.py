@@ -133,6 +133,7 @@ class MomentRecord(Base):
     embedding = Column(_EmbeddingColumn, nullable=True)
     categories = Column(JSON, nullable=True)   # moment_tagger.CATEGORIES (None = not tagged yet)
     why = Column(Text, nullable=True)          # one-line "why it works"
+    payoff = Column(Float, nullable=True)      # talk segments: end of the payoff sentence
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 

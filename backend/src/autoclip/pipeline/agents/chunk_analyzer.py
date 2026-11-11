@@ -387,8 +387,11 @@ def _coerce_moments(data, chunk_start: float, chunk_end: float, chunk_idx) -> Op
     return moments[:MAX_MOMENTS]
 
 
-def _build_messages(plan: ChunkPlan, mode: str, work: Path) -> tuple[list[dict], str]:
-    """Build the chat messages for one chunk. Returns (messages, effective_mode)."""
+def _build_messages(plan: ChunkPlan, mode: str, work: Path,
+                   info: Optional[dict] = None) -> tuple[list[dict], str]:
+    """Build the chat messages for one chunk. Returns (messages, effective_mode).
+    `info["static"]` is set to whether the sampled frames are a static shot
+    (computed even when VISION_STATIC_CHECK is off; talk_segments reads it)."""
     chunk_len = plan.end - plan.start
     transcript_text = _slice_transcript(plan.transcript_window, plan.start, plan.end)
     header = (
@@ -426,8 +429,10 @@ def _build_messages(plan: ChunkPlan, mode: str, work: Path) -> tuple[list[dict],
             frames = []
         spacing = chunk_len / max(1, len(times))
         note = f"spaced ~{spacing:.1f}s apart across the whole chunk."
+        keep = static_keep([_frame_signature(fp) for _, fp in frames]) if frames else None
+        if info is not None:
+            info["static"] = keep is not None
         if VISION_STATIC_CHECK and frames:
-            keep = static_keep([_frame_signature(fp) for _, fp in frames])
             if keep is not None:
                 logger.info("chunk_analyzer: chunk %s is a static shot — sending %d of %d frames",
                             plan.index, len(keep), len(frames))
@@ -464,7 +469,7 @@ def _call(messages: list[dict], attempt: int):
 # ─── Core: analyze one chunk ─────────────────────────────────
 
 def analyze_chunk(plan: ChunkPlan, video_id: Optional[str] = None,
-                  mode: Optional[str] = None) -> list[Moment]:
+                  mode: Optional[str] = None, info: Optional[dict] = None) -> list[Moment]:
     """Run one chunk through OpenRouter vision analysis and return Moment[]."""
     mode = (mode or VISION_INPUT_MODE or "frames").lower()
     if plan.media_kind == "audio":
@@ -476,7 +481,7 @@ def analyze_chunk(plan: ChunkPlan, video_id: Optional[str] = None,
     work = _work_dir(plan, video_id)
     moments: Optional[list[Moment]] = None
     try:
-        messages, eff_mode = _build_messages(plan, mode, work)
+        messages, eff_mode = _build_messages(plan, mode, work, info)
         problem = None
         attempts = max(1, CHUNK_ANALYZE_ATTEMPTS)
         for attempt in range(attempts):
@@ -532,5 +537,6 @@ def chunk_analyzer_node(state: PipelineState) -> dict:
         return {"moment_map_raw": []}
     plan = plans[0]
     video_id = state.get("video_id")
-    moments = analyze_chunk(plan, video_id=video_id)
-    return {"moment_map_raw": moments}
+    info: dict = {}
+    moments = analyze_chunk(plan, video_id=video_id, info=info)
+    return {"moment_map_raw": moments, "chunk_static": [bool(info.get("static"))]}

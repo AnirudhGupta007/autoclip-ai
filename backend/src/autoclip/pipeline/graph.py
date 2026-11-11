@@ -3,6 +3,8 @@
 V2 Architecture:
     transcription → scene_detection → chunk_planner
         ──Send API fan-out──▶ chunk_analyzer (×N parallel) ──fan-in──▶ global_fusion
+        (audio in segment mode: chunk_planner ──▶ talk_segmenter instead;
+         global_fusion turns static-shot videos into transcript segments)
         ──▶ generation subgraph (clip_selector → production)
 
 Key LangGraph primitives used:
@@ -28,7 +30,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from autoclip.pipeline.state import PipelineState, ChunkPlan
 from autoclip.pipeline.agents.chunk_planner import chunk_planner_node
 from autoclip.pipeline.agents.chunk_analyzer import chunk_analyzer_node
-from autoclip.pipeline.agents.global_fusion import global_fusion_node
+from autoclip.pipeline.agents.global_fusion import global_fusion_node, talk_segmenter_node
 from autoclip.pipeline.agents.clip_selector import run_clip_selector
 from autoclip.pipeline.agents.production import run_production
 from autoclip.config import OUTPUT_DIR
@@ -98,6 +100,15 @@ def route_to_chunks(state: PipelineState) -> list[Send]:
     ]
 
 
+def route_after_planner(state: PipelineState):
+    """Audio in segment mode skips chunk analysis: the transcript segmenter
+    is the whole analysis. Everything else fans out to chunk_analyzer."""
+    from autoclip.services.talk_segments import use_segments
+    if (state.get("media_kind") or "video") == "audio" and use_segments("audio"):
+        return "talk_segmenter"
+    return route_to_chunks(state)
+
+
 def route_after_fusion(state: PipelineState) -> str:
     return "has_moments" if state.get("moment_map") else "no_moments"
 
@@ -116,11 +127,13 @@ def build_analysis_subgraph() -> StateGraph:
     g.add_node("chunk_planner", chunk_planner_node)
     g.add_node("chunk_analyzer", chunk_analyzer_node)
     g.add_node("global_fusion", global_fusion_node)
+    g.add_node("talk_segmenter", talk_segmenter_node)
 
     g.set_entry_point("chunk_planner")
-    g.add_conditional_edges("chunk_planner", route_to_chunks, ["chunk_analyzer"])
+    g.add_conditional_edges("chunk_planner", route_after_planner, ["chunk_analyzer", "talk_segmenter"])
     g.add_edge("chunk_analyzer", "global_fusion")
     g.add_edge("global_fusion", END)
+    g.add_edge("talk_segmenter", END)
     return g
 
 
@@ -242,6 +255,7 @@ __all__ = [
     "build_analysis_subgraph",
     "build_generation_subgraph",
     "route_to_chunks",
+    "route_after_planner",
     "route_after_fusion",
     "route_analysis_check",
     "checkpointer",

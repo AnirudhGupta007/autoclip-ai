@@ -29,6 +29,7 @@ def persist_moments(db: Session, video_id: str, moments: list[Moment]) -> int:
             embedding=list(m.embedding) if m.embedding else None,
             categories=list(m.categories) if (m.categories or m.why) else None,
             why=m.why or None,
+            payoff=float(m.payoff) if m.payoff is not None else None,
         ))
         n += 1
     db.commit()
