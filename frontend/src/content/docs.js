@@ -55,7 +55,7 @@ export const SECTIONS = [
         ],
       },
       {
-        note: 'Honest weak spot: the right moment is usually found, but ranking it first for a very specific request is still modest. The Results section on the home page and EVALUATION.md in the repo have the measured numbers.',
+        note: 'Honest weak spot: the right moment is usually found, but ranking it first for a very specific request is still modest. EVALUATION.md in the repo has the measured numbers.',
       },
     ],
   },

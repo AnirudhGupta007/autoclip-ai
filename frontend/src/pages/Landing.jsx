@@ -3,12 +3,11 @@ import { Link } from 'react-router-dom'
 import { MotionConfig, motion, useInView, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import {
   ArrowRight, ArrowUpRight, Scissors, Search, Sparkles, Captions, Gauge, Layers,
-  Waves, Cpu, Database, Github, Play,
+  Waves, Cpu, Database, Github,
 } from 'lucide-react'
 import { Eyebrow, GITHUB_URL, Section, fadeUp } from '../components/landing/primitives'
 import Pipeline from '../components/landing/Pipeline'
 import AgentArchitecture from '../components/landing/AgentArchitecture'
-import Results from '../components/landing/Results'
 import Decisions from '../components/landing/Decisions'
 import TechStack from '../components/landing/TechStack'
 import Limits from '../components/landing/Limits'
@@ -44,7 +43,6 @@ function Nav() {
         <div className="hidden items-center gap-8 text-sm text-platinum-muted lg:flex">
           <a href="#pipeline" className="transition-colors duration-200 hover:text-platinum">How it works</a>
           <a href="#agent" className="transition-colors duration-200 hover:text-platinum">Agent</a>
-          <a href="#results" className="transition-colors duration-200 hover:text-platinum">Results</a>
           <a href="#decisions" className="transition-colors duration-200 hover:text-platinum">Engineering</a>
           <Link to="/docs" className="transition-colors duration-200 hover:text-platinum">Docs</Link>
         </div>
@@ -234,15 +232,8 @@ function HeroCopy() {
       </motion.p>
       <motion.div {...word(1.1)} className="mt-9 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
         <Link
-          to="/demo"
-          className="btn btn-primary btn-lg group"
-        >
-          <Play size={14} className="fill-current" aria-hidden="true" />
-          Try the live demo
-        </Link>
-        <Link
           to="/signup"
-          className="btn btn-secondary btn-lg group bg-obsidian/40 backdrop-blur-sm"
+          className="btn btn-primary btn-lg group"
         >
           Sign up
           <ArrowRight size={15} className="transition-transform duration-300 ease-lux group-hover:translate-x-1" aria-hidden="true" />
@@ -449,15 +440,8 @@ function Closing() {
       </motion.h2>
       <motion.div variants={fadeUp} className="mt-10 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
         <Link
-          to="/demo"
-          className="btn btn-primary btn-lg group"
-        >
-          <Play size={14} className="fill-current" aria-hidden="true" />
-          Try the live demo
-        </Link>
-        <Link
           to="/studio"
-          className="btn btn-secondary btn-lg group"
+          className="btn btn-primary btn-lg group"
         >
           Open the Studio
           <ArrowRight size={16} className="transition-transform duration-300 ease-lux group-hover:translate-x-1" aria-hidden="true" />
@@ -475,8 +459,8 @@ function Closing() {
 
 /* ── Footer with oversized wordmark ─────────────────────────── */
 const FOOTER_COLS = [
-  { title: 'Product', links: [['Live demo', '/demo', true], ['Sign up', '/signup', true], ['Log in', '/login', true], ['Open Studio', '/studio', true], ['Docs', '/docs', true], ['Privacy', '/docs#privacy', true], ['Terms', '/docs#terms', true]] },
-  { title: 'Engine', links: [['How it works', '#pipeline'], ['Agent architecture', '#agent'], ['Results', '#results'], ['Engineering', '#decisions']] },
+  { title: 'Product', links: [['Sign up', '/signup', true], ['Log in', '/login', true], ['Open Studio', '/studio', true], ['Docs', '/docs', true], ['Privacy', '/docs#privacy', true], ['Terms', '/docs#terms', true]] },
+  { title: 'Engine', links: [['How it works', '#pipeline'], ['Agent architecture', '#agent'],['Engineering', '#decisions']] },
   { title: 'Source', links: [['GitHub', GITHUB_URL], ['Evaluation method', `${GITHUB_URL}/blob/master/EVALUATION.md`]] },
 ]
 
@@ -565,7 +549,6 @@ export default function Landing() {
           <Marquee />
           <Pipeline />
           <AgentArchitecture />
-          <Results />
           <Craft />
           <Decisions />
           <Engine />
