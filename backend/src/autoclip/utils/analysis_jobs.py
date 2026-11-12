@@ -280,6 +280,11 @@ def start_analysis(video_id: str, on_fail: Optional[Callable[[], None]] = None,
             ok, minutes_charge = rate_limit.try_consume_analysis_minutes(minutes)
             if not ok:
                 return {"result": "daily_cap", "state": state}
+            ok, count_charge = rate_limit.try_consume_analysis()
+            if not ok:
+                rate_limit.refund(minutes_charge)
+                return {"result": "daily_cap", "state": state}
+            minutes_charge.keys += count_charge.keys   # one charge, refunded together on failure
 
         db = SessionLocal()
         try:

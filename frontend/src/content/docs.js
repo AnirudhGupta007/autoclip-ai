@@ -69,6 +69,7 @@ export const SECTIONS = [
           ['Length', `Up to ${LIMITS.minutes} minutes per upload.`],
           ['File size', `${LIMITS.uploadMb} MB per upload.`],
           ['Requests', `${LIMITS.queriesPerDay} agent requests per day per account. A failed request is refunded.`],
+          ['Analyses per day', 'The whole site analyses at most 2 new uploads a day, across all users, to keep costs down. If today\'s slots are taken, try again tomorrow.'],
           ['Uploads', `${LIMITS.uploads} stored uploads at a time. Delete one from the Library to make room.`],
           ['Formats', 'Video: MP4, MOV, MKV, WEBM. Audio: MP3, M4A, WAV, AAC, OGG, FLAC.'],
           ['Demo', 'The shared demo account is read-only: it can chat about pre-analysed videos but cannot upload, rename or delete.'],

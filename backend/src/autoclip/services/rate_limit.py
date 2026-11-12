@@ -200,6 +200,29 @@ def try_consume_analysis_minutes(minutes: int) -> tuple[bool, Charge]:
     return True, charge
 
 
+def _analysis_count_key() -> str:
+    return f"quota:analyses:{_today()}"
+
+
+def analyses_used() -> int:
+    return _get(_analysis_count_key())
+
+
+def try_consume_analysis() -> tuple[bool, Charge]:
+    """Reserve one of today's site-wide analyses (DAILY_ANALYSIS_LIMIT,
+    0 = unlimited). Refund with refund()."""
+    limit = auth_settings.DAILY_ANALYSIS_LIMIT
+    charge = Charge()
+    if limit <= 0:
+        return True, charge
+    key = _analysis_count_key()
+    if _incr(key) > limit:
+        _incr(key, -1)
+        return False, charge
+    charge.keys.append(key)
+    return True, charge
+
+
 def refund(charge: Optional[Charge]) -> None:
     """Give the run back when it failed on our side (e.g. provider error)."""
     if not charge:

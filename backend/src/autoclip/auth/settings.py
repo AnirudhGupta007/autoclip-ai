@@ -56,6 +56,11 @@ DEMO_ENABLED = os.getenv("DEMO_ENABLED", "1").strip().lower() in {"1", "true", "
 DEMO_EMAIL = os.getenv("DEMO_EMAIL", "demo@autoclip.local").strip().lower()
 DEMO_DAILY_QUERY_LIMIT = _int("DEMO_DAILY_QUERY_LIMIT", 10)   # shared by every demo visitor
 
+# New analyses started per UTC day, all non-admin users combined — analysis
+# is the expensive step, so this caps the daily OpenRouter spend. 0 disables
+# (docker-compose sets 2).
+DAILY_ANALYSIS_LIMIT = _int("DAILY_ANALYSIS_LIMIT", 0)
+
 # Chat quota backstop per client IP (catches one person with many accounts).
 # 0 disables. Per-user limit is config.DAILY_QUERY_LIMIT.
 IP_DAILY_QUERY_LIMIT = _int("IP_DAILY_QUERY_LIMIT", 20)

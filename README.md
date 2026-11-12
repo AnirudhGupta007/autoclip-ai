@@ -354,6 +354,7 @@ autoclip-ai/
 | `CLEANUP_ENABLED` / `CLEANUP_HOUR_UTC` / `CLEANUP_CHECK_SECONDS` | `1` / `3` / `900` | Nightly cleanup loop. |
 | `ANALYSIS_MAX_CONCURRENCY` | `1` | Analyses running at once; the rest queue. |
 | `DAILY_ANALYSIS_MINUTES_LIMIT` | `240` | Site-wide minutes analysed per UTC day by non-admins; 0 = off. |
+| `DAILY_ANALYSIS_LIMIT` | `2` (compose) | New analyses per UTC day, all non-admin users combined; 0 = off. |
 | `READY_MIN_FREE_DISK_GB` / `READY_MIN_OPENROUTER_USD` | `1` / `0` | `/api/health/ready` fails below this disk / at or below this balance. |
 | `READY_OPENROUTER_CACHE_SECONDS` / `READY_OPENROUTER_TIMEOUT` | `300` / `3` | Balance cache and request timeout (a timeout is "unknown", not a failure). |
 | `VISION_STATIC_CHECK` / `VISION_STATIC_FRAMES` / `VISION_STATIC_DIFF` | `1` / `4` / `12` | Static-shot check: send only N frames when a chunk's 24 sampled frames show ≤ N distinct looks (mean abs pixel diff < DIFF on 32x18 grey). |

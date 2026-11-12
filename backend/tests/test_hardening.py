@@ -172,6 +172,42 @@ def test_failed_analysis_refunds_minutes(gated, monkeypatch):
     assert _wait(lambda: rate_limit.analysis_minutes_used() == used)
 
 
+def test_daily_analysis_count_cap(gated, monkeypatch):
+    from autoclip.auth import settings as auth_settings
+    used = rate_limit.analyses_used()
+    monkeypatch.setattr(auth_settings, "DAILY_ANALYSIS_LIMIT", used + 2)
+    monkeypatch.setattr(config, "DAILY_ANALYSIS_MINUTES_LIMIT", 0)
+    _, a = _signup()
+    c, b = _signup()
+    first, second = _video_of_minutes(a["id"], 1), _video_of_minutes(b["id"], 1)
+    for v in (first, second):
+        gated.release(v)                               # let them finish; only the charge matters
+        assert AJ.start_analysis(v)["result"] == "started"
+    assert rate_limit.analyses_used() == used + 2
+
+    third = _video_of_minutes(b["id"], 1)              # a third, from either user, is refused
+    r = c.post("/api/chat/message", json={"message": "clips", "video_id": third})
+    assert r.status_code == 429 and "tomorrow" in r.json()["detail"]
+    assert AJ.video_state(third)["status"] == AJ.UPLOADED
+    assert rate_limit.analyses_used() == used + 2
+    gated.release(third)
+    assert AJ.start_analysis(third, cap_exempt=True)["result"] == "started"   # admins exempt
+    assert _wait(lambda: AJ.video_state(third)["status"] == AJ.ANALYZED)
+
+
+def test_failed_analysis_refunds_the_daily_slot(gated, monkeypatch):
+    from autoclip.auth import settings as auth_settings
+    used = rate_limit.analyses_used()
+    monkeypatch.setattr(auth_settings, "DAILY_ANALYSIS_LIMIT", used + 5)
+    _, me = _signup()
+    vid = _video_of_minutes(me["id"], 1)
+    gated.fail.add(vid)
+    assert AJ.start_analysis(vid)["result"] == "started"
+    assert rate_limit.analyses_used() == used + 1
+    gated.release(vid)
+    assert _wait(lambda: rate_limit.analyses_used() == used)
+
+
 def test_cap_zero_disables(monkeypatch):
     monkeypatch.setattr(config, "DAILY_ANALYSIS_MINUTES_LIMIT", 0)
     ok, charge = rate_limit.try_consume_analysis_minutes(10_000)
